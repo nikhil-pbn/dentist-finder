@@ -14,6 +14,7 @@ export type AppErrorCode =
   | "SEARCH_FAILED"
   | "PROVIDER_TIMEOUT"
   | "PROVIDER_UNAVAILABLE"
+  | "UPSTREAM_UNREACHABLE"
   | "RATE_LIMITED"
   | "CONFIGURATION_ERROR"
   | "INTERNAL_ERROR";
@@ -107,6 +108,27 @@ export class SearchError extends ProviderError {
   }
 }
 
+/**
+ * The upstream host could not be reached at all - DNS did not resolve, or the
+ * network refused the connection.
+ *
+ * Distinct from `SearchError` on purpose. "The dentist search service is
+ * temporarily unavailable" points at Overpass, when the actual fault is usually
+ * on this side: a dropped connection, a VPN, a DNS hiccup. Telling someone the
+ * remote service is down when their own network is is a wild goose chase.
+ */
+export class UpstreamUnreachableError extends ProviderError {
+  constructor(internalMessage: string, options?: { cause?: unknown }) {
+    super(
+      "UPSTREAM_UNREACHABLE",
+      502,
+      "Could not reach the dentist data service. This is usually a temporary network problem - please try again.",
+      internalMessage,
+      options,
+    );
+  }
+}
+
 export class ProviderTimeoutError extends ProviderError {
   constructor(internalMessage: string, options?: { cause?: unknown }) {
     super(
@@ -132,13 +154,16 @@ export class RateLimitedError extends AppError {
 
 /** Misconfigured environment, e.g. `MAP_PROVIDER=google` with no API key. */
 export class ConfigurationError extends AppError {
-  constructor(internalMessage: string) {
-    super(
-      "CONFIGURATION_ERROR",
-      500,
-      "The dentist search service is not configured correctly.",
-      internalMessage,
-    );
+  constructor(
+    internalMessage: string,
+    /**
+     * Overrides the default wording. Saving to a spreadsheet is not the search
+     * service, and telling someone the search is misconfigured when the export
+     * failed sends them to the wrong place.
+     */
+    publicMessage = "The dentist search service is not configured correctly.",
+  ) {
+    super("CONFIGURATION_ERROR", 500, publicMessage, internalMessage);
   }
 }
 

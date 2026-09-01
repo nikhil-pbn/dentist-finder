@@ -34,6 +34,9 @@ Browser ──► /api/dentists ──► getDentistSearchProvider() ──► O
 - [Caching](#caching)
 - [Rate limiting and responsible use](#rate-limiting-and-responsible-use)
 - [Upstream reliability](#upstream-reliability)
+- [Exports](#exports)
+- [Verifying the Excel export](#verifying-the-excel-export)
+- [Saving to Google Sheets](#saving-to-google-sheets)
 - [Switching from OSM to Google](#switching-from-osm-to-google)
 - [Attribution](#attribution)
 - [Known limitations](#known-limitations)
@@ -56,24 +59,9 @@ Email, Website, Map) and as cards on mobile. **Rating and Reviews columns appear
 whenever the results carry them** — which today means under Google. The rule is
 `hasRatings(dentists)`, a check on the data rather than on `dentist.source`, so
 OSM searches never show two columns of dashes and a future provider gets the
-columns the moment it populates the fields. Results download as **Excel (.xlsx)** or **CSV**, and both carry only the
-columns the results can actually fill, so an OSM export has no Rating, Reviews, Open Now or
-Business Status columns, and a Google export has no Email column — the Places API
-has no email field, so it would be empty in every row. Nothing is lost either
-way: the ratings and open state Google supplies reach the file even though the
-table is narrower.
+columns the moment it populates the fields.
 
-| Result set | Columns |
-| --- | --- |
-| OSM | Name, Address, Phone, Email, Website, Map URL |
-| Google | Name, Address, Phone, Website, Rating, Reviews, Open Now, Business Status, Map URL |
-| Empty | Name, Address, Phone, Website, Map URL |
-
-Like the table, this is decided by `selectCsvColumns(dentists)` — a check on the
-data, never on `dentist.source`. A mixed set keeps every column any row can
-fill, and a future provider needs no change here. Header and cells come from one
-column definition, so a header can no longer drift out of step with the values
-beneath it. Searches are reflected in the URL
+Results leave the page three ways — see [Exports](#exports). Searches are reflected in the URL
 (`/?zip=92618&limit=20&radius=15000&requireWebsite=1`), so a search can be
 refreshed, bookmarked or shared.
 
@@ -149,6 +137,14 @@ validated there, and exposed as a typed object. No other module touches
 | `NOMINATIM_BASE_URL` | `https://nominatim.openstreetmap.org` | Point at your own instance if you run one. |
 | `OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | Point at your own instance if you run one. Accepts a **comma-separated list** in preference order; later entries are tried only when an earlier one cannot be reached (see [Upstream reliability](#upstream-reliability)). |
 | `GOOGLE_MAPS_API_KEY` | _unset_ | Required only when `MAP_PROVIDER=google`. |
+| `SHEETS_SPREADSHEET_ID` | _unset_ | Optional. The spreadsheet to append to; the id from its URL. |
+| `SHEETS_CLIENT_EMAIL` | _unset_ | Optional. Service-account address. The sheet must be shared with it as an Editor. |
+| `SHEETS_PRIVATE_KEY` | _unset_ | Optional. The service account's PEM key. **A credential** — newlines written as `
+`. |
+
+The three `SHEETS_*` variables are required **together or not at all**; see
+[Saving to Google Sheets](#saving-to-google-sheets). Unset, the app runs
+normally and the button is not rendered.
 
 Configuration is validated at first use and fails loudly rather than silently
 misbehaving:
@@ -162,6 +158,11 @@ MAP_PROVIDER=yelp
 
 OVERPASS_URL=not-a-url
   → "OVERPASS_URL is not a valid URL: "not-a-url""
+
+SHEETS_SPREADSHEET_ID set, the other two missing
+  → "Google Sheets integration is partly configured. SHEETS_SPREADSHEET_ID,
+     SHEETS_CLIENT_EMAIL and SHEETS_PRIVATE_KEY are all required, or all
+     omitted."
 ```
 
 `.env`, `.env.local` and `.env.*.local` are git-ignored; `.env.example` is
@@ -172,6 +173,7 @@ deliberately un-ignored and contains no secrets.
 ```
 app/
 ├── api/dentists/route.ts     GET /api/dentists — validate, call provider, serialise
+├── api/dentists/save/route.ts POST — re-run the search, append to the sheet
 ├── layout.tsx
 ├── page.tsx                  Server Component: reads the URL, renders the shell
 └── globals.css
@@ -179,7 +181,7 @@ app/
 components/
 ├── DentistFinder.tsx         Client container: request lifecycle and page state
 ├── DentistSearchForm.tsx     ZIP / count / radius / submit + validation UI
-├── DentistResults.tsx        Summary line, CSV export, layout selection
+├── DentistResults.tsx        Summary line, the three exports, layout selection
 ├── DentistTable.tsx          Desktop presentation
 ├── DentistCard.tsx           Mobile presentation
 ├── DentistFields.tsx         Shared value rendering (missing values, links, phone)
@@ -199,10 +201,13 @@ lib/
 ├── rate-limit.ts             Fixed-window request budget
 ├── csv.ts                    RFC 4180 export
 ├── xlsx.ts                   XLSX export (ZIP + SpreadsheetML, no library)
-├── export-columns.ts         The columns both exports share
+├── export-columns.ts         The columns every export shares
 ├── download.ts               Browser download plumbing
 ├── logger.ts                 Structured server logs
-├── api-client.ts             The one place the browser calls /api/dentists
+├── api-client.ts             The one place the browser calls the API
+├── sheets/
+│   ├── auth.ts               Service-account JWT → access token
+│   └── client.ts             Tab + header bootstrap, then append
 └── providers/
     ├── types.ts              The DentistSearchProvider interface
     ├── index.ts              Registry: config → implementation
@@ -540,6 +545,197 @@ fallback it would turn an outage into a silent, confident "0 dentists found",
 which is worse than an error. Query your own area against a candidate first.
 Running your own instance avoids the problem entirely.
 
+## Exports
+
+Three destinations, one column definition:
+
+| | Where it runs | Columns |
+| --- | --- | --- |
+| **Export Excel** (.xlsx) | In the browser | Follow the results |
+| **Export CSV** | In the browser | Follow the results |
+| **Save to spreadsheet** | On the server | Fixed per tab |
+
+Both file exports carry **only the columns the results can actually fill**, so
+an OSM export has no Rating, Reviews, Open Now or Business Status columns, and a
+Google export has no Email column — the Places API has no email field, so it
+would be empty in every row.
+
+| Result set | Columns |
+| --- | --- |
+| OSM | Name, Address, Phone, Email, Website, Map URL, Search ZIP |
+| Google | Name, Address, Phone, Website, Rating, Reviews, Open Now, Business Status, Map URL, Search ZIP |
+| Empty | Name, Address, Phone, Website, Map URL, Search ZIP |
+
+**Search ZIP** is the ZIP typed into the form, not the practice's own — a 92618
+search legitimately returns Lake Forest 92630, so a column called simply "ZIP"
+sitting next to those addresses would read as a claim about the practice. It sits
+last, because it repeats the same value down a single export - useful for telling
+searches apart in a sheet that collects many, but not what anyone reads first. It is a query value rather than a property of
+any result, so it travels to the writers as an `ExportContext` instead of being
+written onto the `Dentist` model.
+
+Like the table, this is decided by `selectExportColumns(dentists)` — a check on
+the data, never on `dentist.source`. A mixed set keeps every column any row can
+fill, and a future provider needs no change. Header and cells come from a single
+column definition in `lib/export-columns.ts`, so a header cannot drift out of
+step with the values beneath it.
+
+The **Google Sheets** destination deliberately uses a *different* rule —
+`sheetColumnsFor(provider)`, a fixed set per tab. A sheet is appended to over
+time and its header is written once; if its columns followed each search's data,
+the first search that returned no email would shift every later row a column
+left. See [Saving to Google Sheets](#saving-to-google-sheets).
+
+### The .xlsx writer
+
+`lib/xlsx.ts` writes a real workbook — a ZIP of SpreadsheetML parts — with **no
+library**. An .xlsx is a handful of small XML files in a ZIP, and the subset
+needed for one sheet of text and numbers is short enough to read in full. That
+keeps the runtime dependency count at zero and keeps a spreadsheet parser, an
+historically rich source of CVEs, out of a bundle that ships to every visitor.
+Entries are stored uncompressed: deflate exists for size, and these files are a
+few kilobytes.
+
+What it gives you over the CSV:
+
+- **Ratings and review counts as numbers**, so they sort and average. A CSV
+  import makes them text unless you intervene.
+- **Phone numbers and ZIPs stay text**, so `+1 949-555-1234` is not read as a
+  formula and `02134` does not become `2134`. Ratings are numbers because
+  arithmetic on them means something; a ZIP is an identifier that merely looks
+  like one.
+- A **frozen, bold header row** and sensible column widths.
+- No import dialog, and no encoding guesswork.
+
+It deliberately does *not* do formulas, multiple sheets, merged cells, dates or
+a shared-string table. Anything beyond one flat sheet belongs in a library.
+
+## Verifying the Excel export
+
+The unit tests parse the archive back with a reader written independently of the
+writer, so a mistake in the ZIP layout cannot agree with itself and pass. That
+still only proves the two halves agree, so the workbook is also opened with a
+real ZIP implementation. Generated from a live OSM search for ZIP 92618:
+
+```
+is_zipfile: True
+CRC check: all entries OK
+parts:
+  [Content_Types].xml                 680 bytes
+  _rels/.rels                         296 bytes
+  xl/workbook.xml                     286 bytes
+  xl/_rels/workbook.xml.rels          424 bytes
+  xl/styles.xml                       689 bytes
+  xl/worksheets/sheet1.xml          10939 bytes
+all parts parse as XML: yes
+header row: ['Name', 'Address', 'Phone', 'Email', 'Website', 'Map URL']
+rows incl. header: 21
+```
+
+And for a Google-shaped record, cell by cell — note E and F are numbers:
+
+```
+headers: ['Name','Address','Phone','Website','Rating','Reviews','Open Now','Business Status','Map URL']
+  A2   text    Irvine Dental Group
+  B2   text    123 Main St, Irvine, CA 92618
+  C2   text    +1 949-555-1234
+  D2   text    https://www.irvinedentalgroup.com
+  E2   number  4.8
+  F2   number  247
+  G2   text    Yes
+  H2   text    OPERATIONAL
+  I2   text    https://www.google.com/maps/place/?q=place_id:ChIJ1
+frozen header: True
+```
+
+## Saving to Google Sheets
+
+Optional. Unset, the app is fully usable and the button is not rendered.
+
+**Two tabs, `osm` and `google`**, each with the columns its provider can fill.
+Both the tab and its header row are created on first use, so a fresh spreadsheet
+needs no manual setup. Rows are **appended, never overwritten** — the sheet is a
+running log, and losing an earlier search to a later one would be a surprising
+way to lose data.
+
+### Setup
+
+1. **Create a service account.** Writing to someone's spreadsheet needs an
+   identity, which an API key cannot provide. Google Cloud Console → IAM & Admin
+   → Service Accounts → Create, then Keys → Add key → Create new key → JSON.
+2. **Enable the Google Sheets API** for that project.
+3. **Share the spreadsheet** with the service account's address as an **Editor**.
+   Skipping this is the most common failure, and returns 403.
+4. Set `SHEETS_SPREADSHEET_ID`, `SHEETS_CLIENT_EMAIL` and `SHEETS_PRIVATE_KEY`
+   (see `.env.example`). All three or none: a half-configured set is refused at
+   startup rather than at the first click.
+
+### Two kinds of document, two ways to write
+
+A `/spreadsheets/d/...` link can point at either of two things, and they are not
+written the same way. The app checks which it has and picks the path:
+
+| Document | How rows are added |
+| --- | --- |
+| **Native Google Sheet** | Sheets API, one `values.append` per save |
+| **Uploaded .xlsx** | Drive API: fetch the workbook, insert the rows, write it back to the same file id |
+
+The second exists because the Sheets API refuses Office files outright:
+
+```
+400 FAILED_PRECONDITION
+This operation is not supported for this document.
+The document must not be an Office file.
+```
+
+The Drive path keeps the file's id, so **the link, the sharing and the revision
+history all survive** — and because Drive versions every write, a bad save is
+recoverable through File > Version history.
+
+That rewrite is deliberately surgical. Every ZIP entry is copied over untouched
+except the one worksheet being appended to, and inside that worksheet only new
+`<row>` elements are inserted before `</sheetData>`. Formatting, formulas,
+shared strings and the other tabs are never parsed, so they cannot be damaged;
+`tests/xlsx-edit.test.ts` asserts byte-for-byte equality on every other part.
+
+New rows use inline strings rather than the shared-string table, so
+`sharedStrings.xml` never has to be rewritten — one less part that can be
+corrupted, and the two representations coexist happily in one sheet.
+
+The one thing the .xlsx path cannot do is create a missing tab: adding a
+worksheet means editing `workbook.xml`, its relationships and the content types
+together. If the tab is absent the save says so and names the tabs the workbook
+does have. A native Google Sheet has no such limit — the tab is created for you.
+
+### Checking the setup
+
+`GET /api/dentists/save` (development only) walks the four things that have to
+line up and names the first that fails, with the fix. Visit it in a browser
+after changing anything:
+
+```
+overall ok: False
+  PASS  Environment variables
+  PASS  Service-account credentials    Google issued an access token.
+  FAIL  Open the spreadsheet           The caller does not have permission
+        FIX: Share the spreadsheet with <service account> as an Editor.
+```
+
+Without it, any one of those four produces the same opaque HTTP error. It is
+404 in production, because it reports on configuration.
+
+### Why the endpoint takes a query, not rows
+
+`POST /api/dentists/save` receives the **search parameters** and re-runs the
+search server-side, appending what the provider returned. Had it accepted rows
+from the browser, anyone could write anything into the spreadsheet. The search
+is cached, so re-running it costs nothing and, under Google, is not billed
+twice. The endpoint shares the app's rate limiter.
+
+Credentials never reach the browser. The page is told only *whether* the
+integration is configured, computed on the server by `isSheetsConfigured()`, so
+it knows whether to render the button.
+
 ## Switching from OSM to Google
 
 The intended future flow, with no other code changes:
@@ -731,6 +927,36 @@ The unit tests ([`tests/`](tests/)) cover the logic worth protecting:
   header/row alignment across every column set the selector can produce; the
   Google-shaped row; the country-trimmed address; and `Open Now` dropping out
   entirely rather than reading `No` when no row knows its state.
+- **The .xlsx writer** — base-26 column letters, XML escaping (including
+  dropping control characters XML cannot represent), the CRC-32 check value,
+  a ZIP that reads back entry for entry through an independently written
+  reader, a central-directory offset that points at a real record,
+  deterministic bytes, numeric rating cells, a frozen header, omitted empty
+  cells, and the same column set the CSV uses.
+- **Google Sheets** — the fixed per-tab column sets and their independence from
+  the data, row shaping (numbers stay numbers, absent values become empty
+  cells), a signed JWT with the right claims, token reuse across calls, the
+  private key never appearing in an error, tab creation, header bootstrap, not
+  rewriting an existing header, appending rather than overwriting, `RAW` input,
+  routing OSM rows to the `osm` tab and Google rows to `google`, and the three
+  failure modes an operator actually hits: 403 (not shared), 404, and an
+  uploaded .xlsx the API cannot write to.
+- **Sheets configuration** — off by default, all three variables required
+  together, escaped newlines restored in the PEM key, and a non-PEM value
+  rejected.
+- **Editing an .xlsx in place** — a ZIP round trip through deflate, reading an
+  archive a different compressor produced, resolving a tab through its
+  relationship rather than by file order (the fixture puts `osm` in
+  `sheet2.xml` on purpose), continuing row numbering rather than restarting,
+  a self-closing empty `sheetData`, numbers staying numbers, XML escaping,
+  extending a stale `dimension`, **every other part surviving byte for byte**,
+  the other provider's tab going untouched, a header written only into an empty
+  tab, a second append continuing the log, and a missing tab naming the ones
+  that exist.
+- **The Search ZIP column** — it closes every export, carries the searched ZIP
+  rather than the practice's, survives an empty result set, keeps a leading
+  zero as text in all three destinations, and appears in the header a sheet tab
+  is created with.
 - **Ratings columns** — `hasRatings` is false for an OSM result set, true as
   soon as one result has a rating or a review count, false for an empty set, and
   never looks at `dentist.source`.

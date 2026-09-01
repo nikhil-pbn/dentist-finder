@@ -10,9 +10,12 @@ import type {
   DentistSearchApiResponse,
   DentistSearchResponse,
   SearchQuery,
+  SheetSaveApiResponse,
+  SheetSaveResponse,
 } from "@/lib/types";
 
 export const DENTISTS_ENDPOINT = "/api/dentists";
+export const SHEET_SAVE_ENDPOINT = "/api/dentists/save";
 
 /** A failed search, carrying a message that is already safe to display. */
 export class DentistSearchRequestError extends Error {
@@ -29,6 +32,9 @@ export class DentistSearchRequestError extends Error {
 
 const GENERIC_FAILURE =
   "The dentist search service is temporarily unavailable. Please try again.";
+
+const SHEET_SAVE_FAILURE =
+  "Could not save to the spreadsheet. Please try again.";
 
 /** Builds the canonical query string, shared by the request and the page URL. */
 export function toSearchParams(query: SearchQuery): URLSearchParams {
@@ -80,6 +86,57 @@ export async function fetchDentists(
     const error = payload.success ? null : payload;
     throw new DentistSearchRequestError(
       error?.error ?? GENERIC_FAILURE,
+      error?.code ?? "UNKNOWN",
+      error?.detail,
+    );
+  }
+
+  return payload;
+}
+
+/**
+ * Appends the results of a search to the configured Google Sheet.
+ *
+ * The query goes over the wire, not the rows: the server re-runs the search and
+ * appends what the provider returned, so this endpoint cannot be used to write
+ * arbitrary data into the spreadsheet.
+ *
+ * @throws DentistSearchRequestError with a user-presentable message.
+ */
+export async function saveToSheet(
+  query: SearchQuery,
+  signal?: AbortSignal,
+): Promise<SheetSaveResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${SHEET_SAVE_ENDPOINT}?${toSearchParams(query)}`, {
+      method: "POST",
+      headers: { Accept: "application/json" },
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    throw new DentistSearchRequestError(
+      "Could not reach the server. Check your connection and try again.",
+      "NETWORK_ERROR",
+    );
+  }
+
+  let payload: SheetSaveApiResponse | null = null;
+  try {
+    payload = (await response.json()) as SheetSaveApiResponse;
+  } catch {
+    payload = null;
+  }
+
+  if (!payload) {
+    throw new DentistSearchRequestError(SHEET_SAVE_FAILURE, "BAD_RESPONSE");
+  }
+
+  if (!response.ok || !payload.success) {
+    const error = payload.success ? null : payload;
+    throw new DentistSearchRequestError(
+      error?.error ?? SHEET_SAVE_FAILURE,
       error?.code ?? "UNKNOWN",
       error?.detail,
     );

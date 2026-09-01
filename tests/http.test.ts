@@ -10,10 +10,14 @@ import {
   PROVIDER_MAX_ATTEMPTS,
   PROVIDER_TOTAL_BUDGET_MS,
 } from "@/lib/constants";
-import { ProviderTimeoutError } from "@/lib/errors";
+import {
+  ProviderTimeoutError,
+  UpstreamUnreachableError,
+} from "@/lib/errors";
 import {
   describeCause,
   HttpStatusError,
+  isUnreachable,
   requestText,
 } from "@/lib/providers/http";
 
@@ -253,5 +257,92 @@ describe("describeCause", () => {
     await expect(
       requestText("https://example.test", options),
     ).rejects.toThrow(/ENOTFOUND/);
+  });
+});
+
+describe("an unreachable host", () => {
+  /** How a DNS failure actually arrives: buried in fetch's cause chain. */
+  function dnsFailure(code = "ENOTFOUND"): TypeError {
+    const cause = Object.assign(
+      new Error(`getaddrinfo ${code} overpass-api.de`),
+      { code },
+    );
+    return new TypeError("fetch failed", { cause });
+  }
+
+  it("recognises the codes that mean nothing could connect", () => {
+    for (const code of [
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "EHOSTUNREACH",
+      "ENETUNREACH",
+      "ENETDOWN",
+    ]) {
+      expect(isUnreachable(dnsFailure(code)), code).toBe(true);
+    }
+  });
+
+  it("does not mistake an ordinary failure for one", () => {
+    expect(isUnreachable(new Error("boom"))).toBe(false);
+    expect(isUnreachable(new HttpStatusError(504, "gateway", "Overpass"))).toBe(false);
+    expect(isUnreachable(null)).toBe(false);
+  });
+
+  it("reports a DNS failure as unreachable rather than as a bad upstream", async () => {
+    /*
+     * The distinction that matters: "the dentist search service is temporarily
+     * unavailable" sends someone to check Overpass's status page, when the
+     * fault was their own DNS. This says so instead.
+     */
+    fetchMock.mockRejectedValue(dnsFailure());
+
+    await expect(
+      requestText("https://overpass-api.de/api/interpreter", {
+        timeoutMs: 1_000,
+        label: "Overpass",
+      }),
+    ).rejects.toBeInstanceOf(UpstreamUnreachableError);
+  });
+
+  it("keeps the real cause in the message for the log", async () => {
+    fetchMock.mockRejectedValue(dnsFailure());
+
+    await expect(
+      requestText("https://overpass-api.de/api/interpreter", {
+        timeoutMs: 1_000,
+        label: "Overpass",
+      }),
+    ).rejects.toThrow(/ENOTFOUND overpass-api\.de/);
+  });
+
+  it("tells the user it is a network problem, not a broken service", async () => {
+    fetchMock.mockRejectedValue(dnsFailure());
+
+    await expect(
+      requestText("https://overpass-api.de/api/interpreter", {
+        timeoutMs: 1_000,
+        label: "Overpass",
+      }),
+    ).rejects.toMatchObject({
+      code: "UPSTREAM_UNREACHABLE",
+      publicMessage: expect.stringContaining("network problem"),
+    });
+  });
+
+  it("still tries the other endpoints before giving up", async () => {
+    // A name that will not resolve is exactly when a mirror earns its keep.
+    fetchMock.mockRejectedValue(dnsFailure());
+
+    await expect(
+      requestText(
+        ["https://overpass-api.de/api/interpreter", "https://mirror.example/api"],
+        { timeoutMs: 1_000, label: "Overpass" },
+      ),
+    ).rejects.toBeInstanceOf(UpstreamUnreachableError);
+
+    const hosts = fetchMock.mock.calls.map((call) => new URL(String(call[0])).host);
+    expect(new Set(hosts).size).toBeGreaterThan(1);
   });
 });

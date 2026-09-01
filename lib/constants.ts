@@ -180,3 +180,44 @@ export const DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
  */
 export const DEFAULT_OSM_USER_AGENT =
   "DentistFinder/1.0 (https://github.com/dentist-finder)";
+
+/* -------------------------------------------------------------------------- */
+/* Google Sheets destination                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+export const GOOGLE_SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
+
+export const DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files";
+export const DRIVE_UPLOAD_URL = "https://www.googleapis.com/upload/drive/v3/files";
+
+export const GOOGLE_SHEET_MIME = "application/vnd.google-apps.spreadsheet";
+export const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/**
+ * Sheets for native documents, Drive for the .xlsx case.
+ *
+ * `drive.file` is not enough: it covers only files the app itself created, and
+ * the whole point here is a spreadsheet someone else made and shared.
+ */
+export const GOOGLE_SHEETS_SCOPE = [
+  "https://www.googleapis.com/auth/spreadsheets",
+  "https://www.googleapis.com/auth/drive",
+].join(" ");
+
+export const SHEETS_TIMEOUT_MS = 15_000;
+
+/** Access tokens last an hour; refresh early rather than race the expiry. */
+export const SHEETS_TOKEN_LIFETIME_SECONDS = 3_600;
+export const SHEETS_TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+/**
+ * One tab per provider, named for it. This is the one place a provider id is
+ * deliberately user-visible: the tabs exist so OSM and Google rows never mix
+ * in a sheet whose columns differ between them.
+ */
+export const SHEET_TAB_NAMES: Record<ProviderId, string> = {
+  osm: "osm",
+  google: "google",
+};

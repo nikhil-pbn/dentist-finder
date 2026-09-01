@@ -7,6 +7,7 @@
  * the right trade for a search tool: the form is in the initial HTML rather
  * than appearing after hydration.
  */
+import { isSheetsConfigured } from "@/lib/config";
 import DentistFinder from "@/components/DentistFinder";
 import SiteFooter from "@/components/SiteFooter";
 import { readSearchQuery } from "@/lib/validation";
@@ -28,20 +29,8 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
-        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl dark:text-zinc-50">
-            Dentist Finder
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">
-            Find dentists near any US ZIP code. Enter a ZIP code, choose how many
-            results you want and how far.
-          </p>
-        </div>
-      </header>
-
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
-        <DentistFinder initial={initial} />
+        <DentistFinder initial={initial} sheetsEnabled={isSheetsConfigured()} />
       </main>
 
       <SiteFooter />

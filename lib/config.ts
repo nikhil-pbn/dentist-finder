@@ -34,10 +34,28 @@ export interface GoogleConfig {
   apiKey: string | null;
 }
 
+/**
+ * Credentials for appending results to a Google Sheet.
+ *
+ * Optional: the app runs, searches and exports files without any of it. Only
+ * the "Save to sheet" button needs it, and that button is hidden when it is
+ * absent rather than failing when pressed.
+ */
+export interface SheetsConfig {
+  /** The spreadsheet's Drive file id, from its URL. */
+  spreadsheetId: string;
+  /** Service-account address; the sheet must be shared with it as an editor. */
+  clientEmail: string;
+  /** PEM private key. Server-side only, and never logged. */
+  privateKey: string;
+}
+
 export interface AppConfig {
   mapProvider: ProviderId;
   osm: OsmConfig;
   google: GoogleConfig;
+  /** `null` when the integration is not configured, which is the default. */
+  sheets: SheetsConfig | null;
 }
 
 type Env = Record<string, string | undefined>;
@@ -130,6 +148,46 @@ export function loadConfig(env: Env = process.env): AppConfig {
       userAgent: readOptional(env, "OSM_USER_AGENT") ?? DEFAULT_OSM_USER_AGENT,
     },
     google: { apiKey: googleApiKey },
+    sheets: readSheetsConfig(env),
+  };
+}
+
+/**
+ * Reads the Sheets credentials, or `null` when the integration is switched off.
+ *
+ * All three values are required together: a half-configured integration would
+ * fail at the first click rather than at startup, so a partial set is treated
+ * as a configuration error rather than quietly ignored.
+ */
+function readSheetsConfig(env: Env): SheetsConfig | null {
+  const spreadsheetId = readOptional(env, "SHEETS_SPREADSHEET_ID");
+  const clientEmail = readOptional(env, "SHEETS_CLIENT_EMAIL");
+  const rawKey = readOptional(env, "SHEETS_PRIVATE_KEY");
+
+  const present = [spreadsheetId, clientEmail, rawKey].filter(Boolean).length;
+  if (present === 0) return null;
+  if (present < 3) {
+    throw new ConfigurationError(
+      "Google Sheets integration is partly configured. SHEETS_SPREADSHEET_ID, SHEETS_CLIENT_EMAIL and SHEETS_PRIVATE_KEY are all required, or all omitted.",
+    );
+  }
+
+  /*
+   * A PEM key cannot survive a single-line .env value, so it is stored with
+   * escaped newlines and restored here. Both forms are accepted, since a
+   * secret manager may inject the real thing.
+   */
+  const privateKey = (rawKey as string).replace(/\\n/g, "\n");
+  if (!privateKey.includes("BEGIN")) {
+    throw new ConfigurationError(
+      "SHEETS_PRIVATE_KEY does not look like a PEM private key. Copy the private_key field from the service-account JSON, newlines and all.",
+    );
+  }
+
+  return {
+    spreadsheetId: spreadsheetId as string,
+    clientEmail: clientEmail as string,
+    privateKey,
   };
 }
 
@@ -164,5 +222,21 @@ export function getProviderIdForDisplay(env: Env = process.env): ProviderId {
     return readProvider(env);
   } catch {
     return DEFAULT_PROVIDER_ID;
+  }
+}
+
+/**
+ * Whether the Google Sheets destination is configured.
+ *
+ * Never throws, for the same reason as `getProviderIdForDisplay`: this decides
+ * whether a button is rendered, and a page must not fail to render because a
+ * secret is missing.
+ */
+export function isSheetsConfigured(env: Env = process.env): boolean {
+  try {
+    return readSheetsConfig(env) !== null;
+  } catch {
+    // Partly configured. The button stays hidden; the log carries the reason.
+    return false;
   }
 }

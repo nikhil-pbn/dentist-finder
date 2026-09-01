@@ -17,10 +17,10 @@ import {
   PROVIDER_RETRY_BASE_DELAY_MS,
   PROVIDER_TOTAL_BUDGET_MS,
 } from "@/lib/constants";
-import { ProviderTimeoutError } from "@/lib/errors";
+import { ProviderTimeoutError, UpstreamUnreachableError } from "@/lib/errors";
 
 export interface HttpRequestOptions {
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT";
   headers?: Record<string, string>;
   body?: string;
   /** Timeout for a single attempt. Also capped by the remaining budget. */
@@ -56,6 +56,32 @@ function isTimeout(error: unknown): boolean {
     error instanceof Error &&
     (error.name === "TimeoutError" || error.name === "AbortError")
   );
+}
+
+/*
+ * Node's codes for "the name did not resolve" and "the connection was refused
+ * or dropped". They arrive buried in `fetch`'s cause chain, never on the error
+ * `fetch` itself throws.
+ */
+const UNREACHABLE_CODES = new Set([
+  "ENOTFOUND", // No DNS record - or no working DNS at all.
+  "EAI_AGAIN", // DNS lookup timed out, which usually means no resolver.
+  "ECONNREFUSED",
+  "ECONNRESET",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "ENETDOWN",
+]);
+
+/** True when nothing on this side could open a connection to the host. */
+export function isUnreachable(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current instanceof Error; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && UNREACHABLE_CODES.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /**
@@ -204,11 +230,17 @@ export async function requestText(
     );
   }
   if (lastError instanceof HttpStatusError) throw lastError;
+
   const tried = endpoints.map((endpoint) => new URL(endpoint).host).join(", ");
-  throw new Error(
-    `${label} request failed after ${attempt} attempt(s) against ${tried}: ${describeCause(lastError)}`,
-    { cause: lastError },
-  );
+  const summary = `${label} request failed after ${attempt} attempt(s) against ${tried}: ${describeCause(lastError)}`;
+
+  // Host-level unreachability is worth its own error: the remedy is a network
+  // one, not "wait for the upstream to recover".
+  if (isUnreachable(lastError)) {
+    throw new UpstreamUnreachableError(summary, { cause: lastError });
+  }
+
+  throw new Error(summary, { cause: lastError });
 }
 
 /** Parses JSON, turning a malformed body into a descriptive Error. */

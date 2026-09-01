@@ -17,7 +17,10 @@
  * library, not here.
  */
 import { triggerDownload } from "@/lib/download";
-import { selectExportColumns } from "@/lib/export-columns";
+import {
+  selectExportColumns,
+  type ExportContext,
+} from "@/lib/export-columns";
 import type { Dentist } from "@/lib/types";
 
 const SHEET_NAME = "Dentists";
@@ -284,14 +287,17 @@ export function zipStore(entries: readonly ZipEntry[]): Uint8Array {
  * spreadsheet; everything else stays text, which keeps a phone number from
  * being reinterpreted as an equation.
  */
-export function dentistsToXlsx(dentists: readonly Dentist[]): Uint8Array {
-  const columns = selectExportColumns(dentists);
+export function dentistsToXlsx(
+  dentists: readonly Dentist[],
+  context: ExportContext,
+): Uint8Array {
+  const columns = selectExportColumns(dentists, context);
   const encoder = new TextEncoder();
 
   const sheet = sheetXml(
     columns.map((column) => column.header),
     columns.map((column) => column.width),
-    dentists.map((dentist) => columns.map((column) => column.value(dentist))),
+    dentists.map((dentist) => columns.map((column) => column.value(dentist, context))),
   );
 
   return zipStore([

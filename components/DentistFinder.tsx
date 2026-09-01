@@ -19,9 +19,16 @@ import LoadingState from "@/components/LoadingState";
 
 export default function DentistFinder({
   initial,
+  sheetsEnabled,
 }: {
   /** Parsed from the page URL on the server, so a shared link works on arrival. */
   initial: { query: SearchQuery; hasValidZip: boolean };
+  /**
+   * Whether the server has Sheets credentials. Read on the server and passed
+   * down, so no configuration - not even its presence - is fetched by the
+   * browser.
+   */
+  sheetsEnabled: boolean;
 }) {
   const [result, setResult] = useState<DentistSearchResponse | null>(null);
   const [error, setError] = useState<{
@@ -121,7 +128,11 @@ export default function DentistFinder({
         ) : null}
 
         {result && result.count > 0 ? (
-          <DentistResults result={result} isStale={isSearching} />
+          <DentistResults
+            result={result}
+            isStale={isSearching}
+            sheetsEnabled={sheetsEnabled}
+          />
         ) : null}
       </div>
     </div>

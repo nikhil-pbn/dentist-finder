@@ -5,6 +5,7 @@
  * cell in the same place, so the two files can never disagree about what is in
  * them, and a header can never drift out of step with the values beneath it.
  */
+import type { ProviderId } from "@/lib/constants";
 import type { Dentist } from "@/lib/types";
 
 /**
@@ -24,14 +25,35 @@ export function formatOpenNow(value: boolean | null): string {
  */
 export type ExportValue = string | number | null | undefined;
 
+/**
+ * What the export knows beyond the results themselves.
+ *
+ * The searched ZIP is not a property of any dentist - a search for 92618
+ * legitimately returns practices in 92604 and 92630 - so it travels here rather
+ * than being written onto the model.
+ */
+export interface ExportContext {
+  /** The ZIP typed into the form, exactly as it was searched. */
+  zip: string;
+}
+
 export interface ExportColumn {
   header: string;
-  value: (dentist: Dentist) => ExportValue;
+  value: (dentist: Dentist, context: ExportContext) => ExportValue;
   /**
    * Optional columns appear only when at least one result has something to put
    * in them. The rest are the columns every provider can fill.
    */
   optional?: true;
+  /**
+   * Which providers can ever fill this column.
+   *
+   * File exports do not consult this - they look at the data. It exists for the
+   * Google Sheets destination, where a tab's columns have to be fixed before
+   * any search runs: a sheet whose columns shifted per append would put ratings
+   * under "Email" the first time a search returned no reviews.
+   */
+  providers?: readonly ProviderId[];
   /** Rendered width in characters, used for the Excel column widths. */
   width: number;
 }
@@ -48,23 +70,54 @@ const ALL_COLUMNS: readonly ExportColumn[] = [
   // The display form, matching what the table and cards show.
   { header: "Address", value: (d) => d.shortAddress ?? d.address, width: 40 },
   { header: "Phone", value: (d) => d.phone, width: 18 },
-  { header: "Email", value: (d) => d.email, optional: true, width: 28 },
+  {
+    header: "Email",
+    value: (d) => d.email,
+    optional: true,
+    providers: ["osm"],
+    width: 28,
+  },
   { header: "Website", value: (d) => d.website, width: 36 },
-  { header: "Rating", value: (d) => d.rating, optional: true, width: 8 },
-  { header: "Reviews", value: (d) => d.reviews, optional: true, width: 9 },
+  {
+    header: "Rating",
+    value: (d) => d.rating,
+    optional: true,
+    providers: ["google"],
+    width: 8,
+  },
+  {
+    header: "Reviews",
+    value: (d) => d.reviews,
+    optional: true,
+    providers: ["google"],
+    width: 9,
+  },
   {
     header: "Open Now",
     value: (d) => formatOpenNow(d.currentOpen),
     optional: true,
+    providers: ["google"],
     width: 10,
   },
   {
     header: "Business Status",
     value: (d) => d.businessStatus,
     optional: true,
+    providers: ["google"],
     width: 18,
   },
   { header: "Map URL", value: (d) => d.mapUrl, width: 44 },
+  /*
+   * Last, because it is the same value on every row of one export - useful
+   * for telling searches apart in a sheet that collects many, but not what
+   * anyone reads first.
+   *
+   * "Search ZIP", not "ZIP": it is the ZIP that was searched, which is often
+   * not the practice's own. A 92618 search returns Lake Forest 92630 among
+   * others, and a column called "ZIP" beside those addresses would be read
+   * as a claim about the practice.
+   */
+  { header: "Search ZIP", value: (_dentist, context) => context.zip, width: 11 },
 ];
 
 export function hasValue(value: ExportValue): boolean {
@@ -87,10 +140,25 @@ export function hasValue(value: ExportValue): boolean {
  */
 export function selectExportColumns(
   dentists: readonly Dentist[],
+  context: ExportContext,
 ): readonly ExportColumn[] {
   return ALL_COLUMNS.filter(
     (column) =>
       !column.optional ||
-      dentists.some((dentist) => hasValue(column.value(dentist))),
+      dentists.some((dentist) => hasValue(column.value(dentist, context))),
+  );
+}
+
+/**
+ * The fixed column set for one provider's sheet tab.
+ *
+ * Unlike a file export, a sheet is appended to over time, so its columns cannot
+ * follow whatever a single search happened to return - the header is written
+ * once and every later append has to line up under it. So this asks what a
+ * provider *can* supply rather than what today's results did.
+ */
+export function sheetColumnsFor(provider: ProviderId): readonly ExportColumn[] {
+  return ALL_COLUMNS.filter(
+    (column) => !column.optional || column.providers?.includes(provider),
   );
 }

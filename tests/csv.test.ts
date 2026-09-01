@@ -4,6 +4,9 @@ import { formatOpenNow, selectExportColumns } from "@/lib/export-columns";
 import type { Dentist } from "@/lib/types";
 import { makeDentist } from "./factories";
 
+/** The ZIP that was searched. It is a column, not a property of any result. */
+const CONTEXT = { zip: "92618" };
+
 /*
  * A populated record. Coordinates, distance, opening hours and provenance stay
  * on the model without appearing in the export - the provider needs them.
@@ -47,7 +50,7 @@ const GOOGLE: Dentist = makeDentist({
 
 /** Splits an export into its rows, dropping the trailing terminator. */
 function rowsOf(dentists: readonly Dentist[]): string[] {
-  return dentistsToCsv(dentists).trimEnd().split("\r\n");
+  return dentistsToCsv(dentists, CONTEXT).trimEnd().split("\r\n");
 }
 
 describe("escapeCsvField", () => {
@@ -80,10 +83,10 @@ describe("dentistsToCsv", () => {
     const rows = rowsOf([BASE]);
     expect(rows).toHaveLength(2);
     // An OSM record, so no rating, review, open-state or status columns.
-    expect(rows[0]).toBe("Name,Address,Phone,Email,Website,Map URL");
+    expect(rows[0]).toBe("Name,Address,Phone,Email,Website,Map URL,Search ZIP");
     // Only the address needs quoting - the escaping is minimal, not blanket.
     expect(rows[1]).toBe(
-      'Irvine Family Dental,"123 Main St, Irvine, CA 92618",+1 949-555-0100,example@email.com,https://example.com/,https://www.openstreetmap.org/node/1',
+      'Irvine Family Dental,"123 Main St, Irvine, CA 92618",+1 949-555-0100,example@email.com,https://example.com/,https://www.openstreetmap.org/node/1,92618',
     );
   });
 
@@ -100,9 +103,9 @@ describe("dentistsToCsv", () => {
     };
     const [header, row] = rowsOf([sparse]);
     // Email follows the data out; the always-present columns stay, just empty.
-    expect(header).toBe("Name,Address,Phone,Website,Map URL");
-    expect(row.split(",")).toHaveLength(5);
-    expect(row).toBe(",,,,https://www.openstreetmap.org/node/1");
+    expect(header).toBe("Name,Address,Phone,Website,Map URL,Search ZIP");
+    expect(row.split(",")).toHaveLength(6);
+    expect(row).toBe(",,,,https://www.openstreetmap.org/node/1,92618");
   });
 
   it("survives a name that would otherwise break the file", () => {
@@ -110,7 +113,7 @@ describe("dentistsToCsv", () => {
       ...BASE,
       name: 'Smith, "Sam" & Co.\nSuite 2',
     };
-    const csv = dentistsToCsv([nasty]);
+    const csv = dentistsToCsv([nasty], CONTEXT);
     expect(csv).toContain('"Smith, ""Sam"" & Co.\nSuite 2"');
     // The header row is still intact and terminated.
     expect(csv.split("\r\n")[0].startsWith("Name,Address")).toBe(true);
@@ -161,11 +164,14 @@ describe("dentistsToCsv", () => {
   });
 
   it("excludes the fields the export deliberately leaves out", () => {
-    const csv = dentistsToCsv([BASE]);
+    const csv = dentistsToCsv([BASE], CONTEXT);
     expect(csv).not.toContain("33.6705");
     expect(csv).not.toContain("-117.7505");
     expect(csv).not.toContain("0.42");
-    expect(csv).not.toContain("node/1,");
+    // `sourceId` is not a column. Checked as a whole field rather than as a
+    // substring, because "node/1" is also the tail of the map URL.
+    const fields = rowsOf([BASE])[1].split(",");
+    expect(fields).not.toContain("node/1");
     for (const header of ["Latitude", "Longitude", "Distance", "Source", "Opening Hours"]) {
       expect(csv).not.toContain(header);
     }
@@ -175,7 +181,7 @@ describe("dentistsToCsv", () => {
     const rows = rowsOf([]);
     expect(rows).toHaveLength(1);
     // With nothing to describe, the columns both providers can always fill.
-    expect(rows[0]).toBe("Name,Address,Phone,Website,Map URL");
+    expect(rows[0]).toBe("Name,Address,Phone,Website,Map URL,Search ZIP");
   });
 });
 
@@ -193,20 +199,20 @@ describe("columns follow the data, not the model", () => {
     const header = rowsOf([GOOGLE])[0];
     expect(header).not.toContain("Email");
     expect(header).toBe(
-      "Name,Address,Phone,Website,Rating,Reviews,Open Now,Business Status,Map URL",
+      "Name,Address,Phone,Website,Rating,Reviews,Open Now,Business Status,Map URL,Search ZIP",
     );
   });
 
   it("exports the Google values under those columns", () => {
     expect(rowsOf([GOOGLE])[1]).toBe(
-      'Irvine Dental Group,"123 Main St, Irvine, CA 92618",+1 949-555-1234,https://www.irvinedentalgroup.com,4.8,247,Yes,OPERATIONAL,https://www.google.com/maps/place/?q=place_id:ChIJtest1',
+      'Irvine Dental Group,"123 Main St, Irvine, CA 92618",+1 949-555-1234,https://www.irvinedentalgroup.com,4.8,247,Yes,OPERATIONAL,https://www.google.com/maps/place/?q=place_id:ChIJtest1,92618',
     );
   });
 
   it("exports the country-trimmed address, not the raw one", () => {
     // `address` still holds Google's verbatim string; the export shows the
     // display form, so the two must not both end up in the file.
-    expect(dentistsToCsv([GOOGLE])).not.toContain("USA");
+    expect(dentistsToCsv([GOOGLE], CONTEXT)).not.toContain("USA");
   });
 
   it("keeps a column that only some of the rows can fill", () => {
@@ -239,8 +245,49 @@ describe("columns follow the data, not the model", () => {
   });
 
   it("selectExportColumns reports the same set the file uses", () => {
-    const headers = selectExportColumns([GOOGLE]).map((column) => column.header);
+    const headers = selectExportColumns([GOOGLE], CONTEXT).map((column) => column.header);
     expect(rowsOf([GOOGLE])[0]).toBe(headers.join(","));
+  });
+});
+
+describe("the Search ZIP column", () => {
+  /** Built from char codes, so no escape can be mangled in transit. */
+  const ROW_BREAK = String.fromCharCode(13, 10);
+  const rowsWith = (dentists: readonly Dentist[], context: { zip: string }) =>
+    dentistsToCsv(dentists, context).trimEnd().split(ROW_BREAK);
+
+  it("closes every export with the ZIP that was searched", () => {
+    const [header, row] = rowsOf([BASE]);
+    expect(header.endsWith(",Search ZIP")).toBe(true);
+    expect(row.endsWith(",92618")).toBe(true);
+  });
+
+  it("reports the searched ZIP, not the practice's own", () => {
+    /*
+     * A 92618 search legitimately returns Lake Forest 92630. The column says
+     * which search produced the row, which is why it is not called "ZIP" and
+     * is not read off the address.
+     */
+    const elsewhere = makeDentist({
+      id: "osm:node/9",
+      name: "OC Splendid Smiles",
+      shortAddress: "24531 Trabuco Road, Lake Forest, CA 92630",
+      mapUrl: "https://www.openstreetmap.org/node/9",
+    });
+    const row = rowsWith([elsewhere], { zip: "92618" })[1];
+
+    expect(row.endsWith(",92618")).toBe(true);
+    expect(row).toContain("92630");
+  });
+
+  it("is present even for an empty result set", () => {
+    expect(rowsOf([])[0].endsWith(",Search ZIP")).toBe(true);
+  });
+
+  it("keeps a leading zero, which a number would lose", () => {
+    // 02134 is a real ZIP. Written as a number it becomes 2134.
+    const row = rowsWith([BASE], { zip: "02134" })[1];
+    expect(row.endsWith(",02134")).toBe(true);
   });
 });
 
@@ -257,7 +304,7 @@ describe("formatOpenNow", () => {
   });
 
   it("drops the column entirely when no row knows its open state", () => {
-    const csv = dentistsToCsv([BASE]);
+    const csv = dentistsToCsv([BASE], CONTEXT);
     expect(csv).not.toContain("Open Now");
     expect(csv).not.toContain(",No,");
   });

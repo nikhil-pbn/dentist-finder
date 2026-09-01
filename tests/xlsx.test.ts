@@ -22,6 +22,9 @@ import {
 import type { Dentist } from "@/lib/types";
 import { makeDentist } from "./factories";
 
+/** The ZIP that was searched, which every export carries as a column. */
+const CONTEXT = { zip: "92618" };
+
 const OSM: Dentist = makeDentist({
   id: "osm:node/1",
   name: "Irvine Family Dental",
@@ -84,7 +87,7 @@ function centralDirectoryOffset(archive: Uint8Array): number {
 }
 
 function sheetOf(dentists: readonly Dentist[]): string {
-  const sheet = readEntries(dentistsToXlsx(dentists)).get("xl/worksheets/sheet1.xml");
+  const sheet = readEntries(dentistsToXlsx(dentists, CONTEXT)).get("xl/worksheets/sheet1.xml");
   if (!sheet) throw new Error("workbook has no worksheet");
   return sheet;
 }
@@ -180,7 +183,7 @@ describe("sheetXml", () => {
 
 describe("dentistsToXlsx", () => {
   it("contains every part a workbook needs", () => {
-    const entries = readEntries(dentistsToXlsx([GOOGLE]));
+    const entries = readEntries(dentistsToXlsx([GOOGLE], CONTEXT));
     expect([...entries.keys()]).toEqual([
       "[Content_Types].xml",
       "_rels/.rels",
@@ -192,7 +195,7 @@ describe("dentistsToXlsx", () => {
   });
 
   it("names the sheet", () => {
-    const workbook = readEntries(dentistsToXlsx([GOOGLE])).get("xl/workbook.xml");
+    const workbook = readEntries(dentistsToXlsx([GOOGLE], CONTEXT)).get("xl/workbook.xml");
     expect(workbook).toContain('name="Dentists"');
   });
 
@@ -242,6 +245,27 @@ describe("dentistsToXlsx", () => {
     const sheet = sheetOf([]);
     expect(sheet).toContain('<row r="1">');
     expect(sheet).not.toContain('<row r="2">');
+  });
+});
+
+describe("the Search ZIP column", () => {
+  it("is the first column, carrying the searched ZIP", () => {
+    const sheet = sheetOf([GOOGLE]);
+    expect(sheet).toContain('<t xml:space="preserve">Search ZIP</t>');
+    expect(sheet).toContain('<t xml:space="preserve">92618</t>');
+  });
+
+  it("stores the ZIP as text, so a leading zero survives", () => {
+    /*
+     * The one place this genuinely matters: as a number, 02134 becomes 2134 and
+     * the ZIP is silently wrong. Ratings are numbers because arithmetic on them
+     * makes sense; a ZIP is an identifier that happens to look like one.
+     */
+    const sheet = readEntries(dentistsToXlsx([OSM], { zip: "02134" })).get(
+      "xl/worksheets/sheet1.xml",
+    );
+    expect(sheet).toContain('<t xml:space="preserve">02134</t>');
+    expect(sheet).not.toContain("<v>2134</v>");
   });
 });
 

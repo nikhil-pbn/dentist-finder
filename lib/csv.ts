@@ -6,7 +6,10 @@
  * with the Excel writer.
  */
 import { triggerDownload } from "@/lib/download";
-import { selectExportColumns } from "@/lib/export-columns";
+import {
+  selectExportColumns,
+  type ExportContext,
+} from "@/lib/export-columns";
 import type { Dentist } from "@/lib/types";
 
 const ROW_SEPARATOR = "\r\n";
@@ -37,12 +40,15 @@ export function toCsvRow(values: ReadonlyArray<string | number | null | undefine
  * `Open Now` is a snapshot of when the results were fetched, not of when the
  * file is opened.
  */
-export function dentistsToCsv(dentists: readonly Dentist[]): string {
-  const columns = selectExportColumns(dentists);
+export function dentistsToCsv(
+  dentists: readonly Dentist[],
+  context: ExportContext,
+): string {
+  const columns = selectExportColumns(dentists, context);
   const rows = [
     toCsvRow(columns.map((column) => column.header)),
     ...dentists.map((dentist) =>
-      toCsvRow(columns.map((column) => column.value(dentist))),
+      toCsvRow(columns.map((column) => column.value(dentist, context))),
     ),
   ];
   return rows.join(ROW_SEPARATOR) + ROW_SEPARATOR;

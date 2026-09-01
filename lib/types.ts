@@ -105,6 +105,20 @@ export interface DentistSearchResponse {
  * configuration errors** - the class of failure where the person looking at the
  * screen is the person who must fix it. It never contains a secret.
  */
+/** Successful `/api/dentists/save` payload. */
+export interface SheetSaveResponse {
+  success: true;
+  /** The tab the rows went into: the provider's own id. */
+  tab: string;
+  /** How many rows were actually appended, never how many were requested. */
+  appendedRows: number;
+  spreadsheetUrl: string;
+}
+
+export type SheetSaveApiResponse =
+  | SheetSaveResponse
+  | DentistSearchErrorResponse;
+
 export interface DentistSearchErrorResponse {
   success: false;
   error: string;
