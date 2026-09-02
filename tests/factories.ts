@@ -33,6 +33,7 @@ export function makeDentist(overrides: Partial<Dentist> = {}): Dentist {
     reviews: null,
     businessStatus: null,
     categories: null,
+    pms: null,
     ...overrides,
   };
 }

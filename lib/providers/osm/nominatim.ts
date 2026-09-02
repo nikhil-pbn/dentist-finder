@@ -154,9 +154,3 @@ export async function geocodeUsZip(
     });
   }
 }
-
-/** Test seam: clears the inter-request spacing state. */
-export function resetNominatimThrottle(): void {
-  queueTail = Promise.resolve();
-  nextSlotAt = 0;
-}

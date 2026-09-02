@@ -54,6 +54,11 @@ export interface ExportColumn {
    * under "Email" the first time a search returned no reviews.
    */
   providers?: readonly ProviderId[];
+  /**
+   * Marks the PMS column. It sits last and is the only one that may be added
+   * to a sheet tab whose header already exists.
+   */
+  group?: "pms";
   /** Rendered width in characters, used for the Excel column widths. */
   width: number;
 }
@@ -118,7 +123,21 @@ const ALL_COLUMNS: readonly ExportColumn[] = [
    * as a claim about the practice.
    */
   { header: "Search ZIP", value: (_dentist, context) => context.zip, width: 11 },
+  /*
+   * PMS detection, after every dentist column. Last for a practical reason: an
+   * existing sheet tab already has its header written, and the only change
+   * that never disturbs it is adding a column to the right. Always present, so
+   * a file or a sheet has the column whether or not a scan has run; a dentist
+   * with no vendor found gets an empty cell.
+   */
+  { header: "PMS", value: (d) => d.pms, group: "pms", width: 20 },
 ];
+
+/** How many columns precede the PMS group: the part of a header that is fixed. */
+export function fixedColumnCount(columns: readonly ExportColumn[]): number {
+  const first = columns.findIndex((column) => column.group === "pms");
+  return first === -1 ? columns.length : first;
+}
 
 export function hasValue(value: ExportValue): boolean {
   if (value === null || value === undefined) return false;
@@ -142,11 +161,10 @@ export function selectExportColumns(
   dentists: readonly Dentist[],
   context: ExportContext,
 ): readonly ExportColumn[] {
-  return ALL_COLUMNS.filter(
-    (column) =>
-      !column.optional ||
-      dentists.some((dentist) => hasValue(column.value(dentist, context))),
-  );
+  return ALL_COLUMNS.filter((column) => {
+    if (!column.optional) return true;
+    return dentists.some((dentist) => hasValue(column.value(dentist, context)));
+  });
 }
 
 /**

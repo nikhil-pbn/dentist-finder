@@ -12,10 +12,14 @@ import { ConfigurationError } from "@/lib/errors";
 import { sheetColumnsFor } from "@/lib/export-columns";
 import { buildAssertion, getAccessToken, resetAccessTokenCache } from "@/lib/sheets/auth";
 import {
-  appendDentistsToSheet,
+  appendRows,
   ensureSheetReady,
   toSheetRows,
+  type SheetTarget,
 } from "@/lib/sheets/client";
+import type { ProviderId } from "@/lib/constants";
+import type { ExportContext } from "@/lib/export-columns";
+import type { Dentist } from "@/lib/types";
 import { XLSX_MIME } from "@/lib/constants";
 import { diagnoseSheets } from "@/lib/sheets/diagnose";
 import { readZip, writeZip } from "@/lib/sheets/xlsx-edit";
@@ -37,6 +41,24 @@ const CONFIG: SheetsConfig = {
 };
 
 const fetchMock = vi.fn();
+
+/** What the save route does: prepare the tab, then append to it. */
+async function appendDentistsToSheet(
+  config: SheetsConfig,
+  provider: ProviderId,
+  dentists: readonly Dentist[],
+  context: ExportContext,
+): Promise<Pick<SheetTarget, "tab" | "createdTab" | "wroteHeader" | "mode"> & { appendedRows: number }> {
+  const target = await ensureSheetReady(config, provider);
+  const appendedRows = await appendRows(config, target, dentists, context);
+  return {
+    tab: target.tab,
+    appendedRows,
+    createdTab: target.createdTab,
+    wroteHeader: target.wroteHeader,
+    mode: target.mode,
+  };
+}
 
 interface Call {
   url: string;
@@ -182,6 +204,16 @@ const GOOGLE_DENTIST = makeDentist({
   businessStatus: "OPERATIONAL",
 });
 
+/**
+ * The PMS column closes every sheet tab, whichever provider it belongs to. A
+ * tab's header is written once and every later append has to line up under
+ * it, so the column exists from the start and stays empty until a scan fills it.
+ */
+const PMS_HEADERS = ["PMS"];
+
+/** What that column looks like for a dentist that has not been scanned. */
+const PMS_EMPTY = PMS_HEADERS.map(() => "");
+
 describe("sheetColumnsFor", () => {
   it("gives each tab the columns its provider can fill", () => {
     expect(sheetColumnsFor("osm").map((c) => c.header)).toEqual([
@@ -192,6 +224,7 @@ describe("sheetColumnsFor", () => {
       "Website",
       "Map URL",
       "Search ZIP",
+      ...PMS_HEADERS,
     ]);
     expect(sheetColumnsFor("google").map((c) => c.header)).toEqual([
       "Name",
@@ -204,6 +237,7 @@ describe("sheetColumnsFor", () => {
       "Business Status",
       "Map URL",
       "Search ZIP",
+      ...PMS_HEADERS,
     ]);
   });
 
@@ -232,6 +266,8 @@ describe("toSheetRows", () => {
       "OPERATIONAL",
       "https://www.google.com/maps/place/?q=place_id:ChIJ1",
       "92618",
+      // Unscanned, so every PMS cell is empty rather than a placeholder.
+      ...PMS_EMPTY,
     ]);
   });
 
@@ -244,7 +280,7 @@ describe("toSheetRows", () => {
   it("writes an empty cell for a value the source did not have", () => {
     const bare = makeDentist({ id: "osm:node/2", name: "Bare", source: "osm" });
     expect(toSheetRows([bare], "osm", CONTEXT)).toEqual([
-      ["Bare", "", "", "", "", "", "92618"],
+      ["Bare", "", "", "", "", "", "92618", ...PMS_EMPTY],
     ]);
   });
 
@@ -338,6 +374,7 @@ describe("appendDentistsToSheet", () => {
           "https://example.com/",
           "https://www.openstreetmap.org/node/1",
           "92618",
+          ...PMS_EMPTY,
         ],
       ],
     });
@@ -391,6 +428,7 @@ describe("appendDentistsToSheet", () => {
           "Business Status",
           "Map URL",
           "Search ZIP",
+          ...PMS_HEADERS,
         ],
       ],
     });
@@ -520,13 +558,17 @@ describe("appendDentistsToSheet", () => {
 });
 
 describe("the Search ZIP column in the sheet", () => {
-  it("closes each appended row, so a shared sheet records the search", async () => {
+  /** The cell index the Search ZIP occupies: last of the dentist columns. */
+  const zipIndex = (provider: "osm" | "google"): number =>
+    sheetColumnsFor(provider).findIndex((column) => column.header === "Search ZIP");
+
+  it("closes the dentist columns, so a shared sheet records the search", async () => {
     stubSheets();
     await appendDentistsToSheet(CONFIG, "osm", [OSM_DENTIST], { zip: "60601" });
 
     const values = (callTo(":append", "POST")?.body as { values: unknown[][] })
       .values;
-    expect(values[0].at(-1)).toBe("60601");
+    expect(values[0][zipIndex("osm")]).toBe("60601");
   });
 
   it("keeps a leading zero as text", async () => {
@@ -535,7 +577,7 @@ describe("the Search ZIP column in the sheet", () => {
 
     const values = (callTo(":append", "POST")?.body as { values: unknown[][] })
       .values;
-    expect(values[0].at(-1)).toBe("02134");
+    expect(values[0][zipIndex("osm")]).toBe("02134");
   });
 
   it("appears in the header the tab is created with", async () => {
@@ -544,7 +586,9 @@ describe("the Search ZIP column in the sheet", () => {
 
     const header = (callTo("A1:Z1", "PUT")?.body as { values: string[][] })
       .values[0];
-    expect(header.at(-1)).toBe("Search ZIP");
+    expect(header[zipIndex("osm")]).toBe("Search ZIP");
+    // The PMS column follows it, so the row width is stable from day one.
+    expect(header.at(-1)).toBe("PMS");
   });
 });
 

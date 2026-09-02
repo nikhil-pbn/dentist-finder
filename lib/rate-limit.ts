@@ -52,8 +52,3 @@ function pruneExpired(now: number): void {
     if (entry.resetAt <= now) windows.delete(key);
   }
 }
-
-/** Test seam. */
-export function resetRateLimits(): void {
-  windows.clear();
-}

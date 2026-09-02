@@ -9,7 +9,6 @@
  */
 import { isSheetsConfigured } from "@/lib/config";
 import DentistFinder from "@/components/DentistFinder";
-import SiteFooter from "@/components/SiteFooter";
 import { readSearchQuery } from "@/lib/validation";
 
 /** Flattens Next's `searchParams` record into the shape validation expects. */
@@ -29,11 +28,10 @@ export default async function Home({ searchParams }: PageProps<"/">) {
 
   return (
     <div className="flex min-h-full flex-1 flex-col bg-zinc-50 dark:bg-black">
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 sm:px-6">
         <DentistFinder initial={initial} sheetsEnabled={isSheetsConfigured()} />
       </main>
 
-      <SiteFooter />
     </div>
   );
 }

@@ -138,6 +138,8 @@ export function elementToDentist(
     reviews: null,
     businessStatus: null,
     categories: null,
+    // Filled by the PMS detector, never by a search provider.
+    pms: null,
   };
 }
 

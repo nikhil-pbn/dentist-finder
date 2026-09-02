@@ -82,11 +82,12 @@ describe("dentistsToCsv", () => {
   it("writes a header row followed by one row per result", () => {
     const rows = rowsOf([BASE]);
     expect(rows).toHaveLength(2);
-    // An OSM record, so no rating, review, open-state or status columns.
-    expect(rows[0]).toBe("Name,Address,Phone,Email,Website,Map URL,Search ZIP");
+    // An OSM record, so no rating, review, open-state or status columns. The
+    // PMS column is always present, and empty until a scan names a vendor.
+    expect(rows[0]).toBe("Name,Address,Phone,Email,Website,Map URL,Search ZIP,PMS");
     // Only the address needs quoting - the escaping is minimal, not blanket.
     expect(rows[1]).toBe(
-      'Irvine Family Dental,"123 Main St, Irvine, CA 92618",+1 949-555-0100,example@email.com,https://example.com/,https://www.openstreetmap.org/node/1,92618',
+      'Irvine Family Dental,"123 Main St, Irvine, CA 92618",+1 949-555-0100,example@email.com,https://example.com/,https://www.openstreetmap.org/node/1,92618,',
     );
   });
 
@@ -103,9 +104,9 @@ describe("dentistsToCsv", () => {
     };
     const [header, row] = rowsOf([sparse]);
     // Email follows the data out; the always-present columns stay, just empty.
-    expect(header).toBe("Name,Address,Phone,Website,Map URL,Search ZIP");
-    expect(row.split(",")).toHaveLength(6);
-    expect(row).toBe(",,,,https://www.openstreetmap.org/node/1,92618");
+    expect(header).toBe("Name,Address,Phone,Website,Map URL,Search ZIP,PMS");
+    expect(row.split(",")).toHaveLength(7);
+    expect(row).toBe(",,,,https://www.openstreetmap.org/node/1,92618,");
   });
 
   it("survives a name that would otherwise break the file", () => {
@@ -181,7 +182,7 @@ describe("dentistsToCsv", () => {
     const rows = rowsOf([]);
     expect(rows).toHaveLength(1);
     // With nothing to describe, the columns both providers can always fill.
-    expect(rows[0]).toBe("Name,Address,Phone,Website,Map URL,Search ZIP");
+    expect(rows[0]).toBe("Name,Address,Phone,Website,Map URL,Search ZIP,PMS");
   });
 });
 
@@ -199,13 +200,13 @@ describe("columns follow the data, not the model", () => {
     const header = rowsOf([GOOGLE])[0];
     expect(header).not.toContain("Email");
     expect(header).toBe(
-      "Name,Address,Phone,Website,Rating,Reviews,Open Now,Business Status,Map URL,Search ZIP",
+      "Name,Address,Phone,Website,Rating,Reviews,Open Now,Business Status,Map URL,Search ZIP,PMS",
     );
   });
 
   it("exports the Google values under those columns", () => {
     expect(rowsOf([GOOGLE])[1]).toBe(
-      'Irvine Dental Group,"123 Main St, Irvine, CA 92618",+1 949-555-1234,https://www.irvinedentalgroup.com,4.8,247,Yes,OPERATIONAL,https://www.google.com/maps/place/?q=place_id:ChIJtest1,92618',
+      'Irvine Dental Group,"123 Main St, Irvine, CA 92618",+1 949-555-1234,https://www.irvinedentalgroup.com,4.8,247,Yes,OPERATIONAL,https://www.google.com/maps/place/?q=place_id:ChIJtest1,92618,',
     );
   });
 
@@ -256,10 +257,10 @@ describe("the Search ZIP column", () => {
   const rowsWith = (dentists: readonly Dentist[], context: { zip: string }) =>
     dentistsToCsv(dentists, context).trimEnd().split(ROW_BREAK);
 
-  it("closes every export with the ZIP that was searched", () => {
+  it("places the ZIP that was searched just before the closing PMS column", () => {
     const [header, row] = rowsOf([BASE]);
-    expect(header.endsWith(",Search ZIP")).toBe(true);
-    expect(row.endsWith(",92618")).toBe(true);
+    expect(header.endsWith(",Search ZIP,PMS")).toBe(true);
+    expect(row.endsWith(",92618,")).toBe(true);
   });
 
   it("reports the searched ZIP, not the practice's own", () => {
@@ -276,18 +277,18 @@ describe("the Search ZIP column", () => {
     });
     const row = rowsWith([elsewhere], { zip: "92618" })[1];
 
-    expect(row.endsWith(",92618")).toBe(true);
+    expect(row.endsWith(",92618,")).toBe(true);
     expect(row).toContain("92630");
   });
 
   it("is present even for an empty result set", () => {
-    expect(rowsOf([])[0].endsWith(",Search ZIP")).toBe(true);
+    expect(rowsOf([])[0].endsWith(",Search ZIP,PMS")).toBe(true);
   });
 
   it("keeps a leading zero, which a number would lose", () => {
     // 02134 is a real ZIP. Written as a number it becomes 2134.
     const row = rowsWith([BASE], { zip: "02134" })[1];
-    expect(row.endsWith(",02134")).toBe(true);
+    expect(row.endsWith(",02134,")).toBe(true);
   });
 });
 

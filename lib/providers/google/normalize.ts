@@ -107,6 +107,8 @@ export function placeToDentist(
       typeof place.userRatingCount === "number" ? place.userRatingCount : null,
     businessStatus: firstNonEmpty(place.businessStatus),
     categories: place.types?.length ? place.types : null,
+    // Filled by the PMS detector, never by a search provider.
+    pms: null,
   };
 }
 

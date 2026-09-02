@@ -37,6 +37,7 @@ Browser ──► /api/dentists ──► getDentistSearchProvider() ──► O
 - [Exports](#exports)
 - [Verifying the Excel export](#verifying-the-excel-export)
 - [Saving to Google Sheets](#saving-to-google-sheets)
+- [PMS detection](#pms-detection)
 - [Switching from OSM to Google](#switching-from-osm-to-google)
 - [Attribution](#attribution)
 - [Known limitations](#known-limitations)
@@ -187,8 +188,7 @@ components/
 ├── DentistFields.tsx         Shared value rendering (missing values, links, phone)
 ├── EmptyState.tsx
 ├── ErrorState.tsx
-├── LoadingState.tsx
-└── SiteFooter.tsx            OpenStreetMap attribution
+└── LoadingState.tsx
 
 lib/
 ├── config.ts                 The only reader of process.env
@@ -736,6 +736,38 @@ Credentials never reach the browser. The page is told only *whether* the
 integration is configured, computed on the server by `isSheetsConfigured()`, so
 it knows whether to render the button.
 
+## PMS detection
+
+Optional, needs no credentials, and described in
+[docs/pms-detection.md](docs/pms-detection.md).
+
+Click **Detect PMS** on a set of results and the server looks at each
+practice's public website for URLs that belong to a known practice management
+or patient-engagement vendor: where "Book Appointment", "Patient Portal",
+"Forms" and "Contact" lead, what is embedded, and where those redirect to.
+
+```
+results table ──► POST /api/pms/detect ──► job id
+                                            │
+      GET /api/pms/jobs/<id> ◄── browser polls ──► PMS column fills in
+                                            │
+              homepage ──► appointment / portal / forms / contact pages
+              ──► follow redirects ──► match every URL's host against
+                  lib/pms/identifiers.ts ──► "Denticon" or blank
+```
+
+The result is a name or nothing: `Denticon`, `Weave, Denticon` when a site
+points at more than one vendor, or an empty cell. A blank means only that no
+known vendor URL was found on the site; most desktop systems leave none. The
+table also shows the URL that named the vendor, or why nothing was found; the
+spreadsheet and the file exports carry the name alone, in one column, `PMS`,
+appended after the existing columns.
+
+The crawler fetches at most eight pages and twelve requests per site, three
+sites at a time, HTML only, honours robots.txt, never submits a form or logs
+in, and checks every URL and redirect hop against private address ranges before
+requesting it.
+
 ## Switching from OSM to Google
 
 The intended future flow, with no other code changes:
@@ -761,14 +793,10 @@ exception. The React components, `/api/dentists`, `lib/validation.ts`, the
 `Dentist` model, the CSV export, the search flow, the URL scheme and the error
 handling are identical for both providers.
 
-The exception is **attribution**, which cannot be provider-agnostic: the ODbL
-requires crediting OpenStreetMap, and Google's policy requires "Powered by
-Google", and a page doing the first while showing the second's data is simply
-false. So the credit is data, not markup — `lib/providers/attribution.ts` holds
-one entry per `ProviderId`, and `SiteFooter` renders whichever the configured
-provider calls for. Setting `MAP_PROVIDER=google` changes the footer with it;
-no component is edited, and the `Record<ProviderId, ...>` makes a future
-provider that forgets its credit a build error rather than a licence breach.
+The one thing that cannot be provider-agnostic is **attribution**: the ODbL
+requires crediting OpenStreetMap, Google's policy requires "Powered by Google",
+and a page doing the first while showing the second's data is simply false. The
+app currently shows neither — see [Attribution](#attribution).
 
 ### Prerequisites
 
@@ -825,25 +853,23 @@ fields the model uses, since the mask determines the billing SKU.
 
 ### Still worth reviewing before production
 
-The attribution in `components/SiteFooter.tsx` still credits OpenStreetMap, and
-Google's terms carry their own attribution and caching requirements — notably
-limits on how long Places data may be stored, which should be checked against
-the TTLs in [Caching](#caching). Nothing in the architecture prevents this; it
-is simply not something a provider swap can decide for you.
+The app currently shows no attribution at all (see
+[Attribution](#attribution)), and Google's terms carry their own attribution
+and caching requirements — notably limits on how long Places data may be
+stored, which should be checked against the TTLs in [Caching](#caching).
+Nothing in the architecture prevents this; it is simply not something a
+provider swap can decide for you.
 
 ## Attribution
 
-The footer credits whichever provider is configured, on every page. Please keep
-it if you fork this — both credits are conditions of use, not decoration.
-
-| `MAP_PROVIDER` | Credit shown |
-| --- | --- |
-| `osm` | "Map data © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright), available under the Open Database License. Geocoding by Nominatim, search by the Overpass API." |
-| `google` | "Powered by [Google](https://developers.google.com/maps/documentation/places/web-service/policies). Place details and ratings © Google, geocoding by the Google Geocoding API." |
-
-The text lives in `lib/providers/attribution.ts`, keyed by provider id, and is
-covered by `tests/attribution.test.ts` — including a test that neither credit
-ever names the other provider's source.
+The app currently renders **no provider credit**: the footer that carried it
+(`components/SiteFooter.tsx`) and the per-provider text behind it
+(`lib/providers/attribution.ts`) have been removed. Both data sources make a
+credit a condition of use, not decoration — the ODbL requires "Map data ©
+[OpenStreetMap contributors](https://www.openstreetmap.org/copyright)", and
+Google's policy requires "Powered by Google" wherever Places data is shown
+outside a Google map. Add one back before this is shown to anyone outside your
+team; `git log -- components/SiteFooter.tsx` has the previous implementation.
 
 ## Known limitations
 
@@ -879,6 +905,13 @@ ever names the other provider's source.
     every match in one plain table, with no pagination or virtualisation. That
     is fine for the hundreds a 50 km radius yields, but it is the one place
     where a very dense area will feel heavy in the browser.
+11. **A blank PMS cell is not "no PMS".** It means no known vendor URL appeared
+    on the public website, and most desktop systems leave none. See
+    [docs/pms-detection.md](docs/pms-detection.md).
+12. **PMS scan jobs live in one process for an hour**, like the search cache
+    above, so a restart forgets them and a multi-instance deployment keeps its
+    own per instance. "Save to spreadsheet" fills the PMS column from that
+    job, so save within the hour, on the same server.
 
 ## Testing
 
@@ -960,8 +993,6 @@ The unit tests ([`tests/`](tests/)) cover the logic worth protecting:
 - **Ratings columns** — `hasRatings` is false for an OSM result set, true as
   soon as one result has a rating or a review count, false for an empty set, and
   never looks at `dentist.source`.
-- **Attribution** — every provider has a credit, the ODbL wording for OSM and
-  "Powered by Google" for Google, and neither ever names the other's source.
 - **Provider selection** — `MAP_PROVIDER=osm` returns the OSM provider,
   `google` returns the Google provider, unknown values and a missing Google key
   produce clear configuration errors, instances are memoised.

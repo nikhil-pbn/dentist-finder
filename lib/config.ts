@@ -204,33 +204,11 @@ export function getConfig(): AppConfig {
   return cachedConfig;
 }
 
-/** Test seam: drops the memoised config so the next call re-reads the env. */
-export function resetConfigCache(): void {
-  cachedConfig = null;
-}
-
-/**
- * The configured provider id, for display purposes only.
- *
- * Deliberately does not go through `getConfig()`. A missing API key must fail
- * the *search* with a clear message, not blank the whole page, so this reads
- * `MAP_PROVIDER` alone and falls back to the default rather than throwing: a
- * typo shows the default credit while `/api/dentists` reports the real problem.
- */
-export function getProviderIdForDisplay(env: Env = process.env): ProviderId {
-  try {
-    return readProvider(env);
-  } catch {
-    return DEFAULT_PROVIDER_ID;
-  }
-}
-
 /**
  * Whether the Google Sheets destination is configured.
  *
- * Never throws, for the same reason as `getProviderIdForDisplay`: this decides
- * whether a button is rendered, and a page must not fail to render because a
- * secret is missing.
+ * Never throws: this decides whether a button is rendered, and a page must not
+ * fail to render because a secret is missing.
  */
 export function isSheetsConfigured(env: Env = process.env): boolean {
   try {

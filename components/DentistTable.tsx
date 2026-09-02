@@ -1,5 +1,7 @@
 /** Desktop presentation of the results. Purely presentational. */
+import type { PmsScan } from "@/lib/pms/types";
 import type { Dentist } from "@/lib/types";
+import { PmsValue } from "@/components/PmsFields";
 import {
   DentistName,
   EmailValue,
@@ -15,7 +17,14 @@ import {
 const HEADER_CLASS =
   "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400";
 
-export default function DentistTable({ dentists }: { dentists: Dentist[] }) {
+export default function DentistTable({
+  dentists,
+  pmsScans,
+}: {
+  dentists: Dentist[];
+  /** Scan details keyed by dentist id, for the PMS column. */
+  pmsScans: Record<string, PmsScan>;
+}) {
   /*
    * Shown only when the results actually carry ratings - which is to say under
    * Google, and under any future provider that supplies them. Rendering two
@@ -23,15 +32,21 @@ export default function DentistTable({ dentists }: { dentists: Dentist[] }) {
    * them at all.
    */
   const showRatings = hasRatings(dentists);
+  // The PMS column appears once a scan has produced its first result.
+  const showPms = Object.keys(pmsScans).length > 0;
+
+  const minWidth = showPms
+    ? showRatings
+      ? "min-w-[92rem]"
+      : "min-w-[80rem]"
+    : showRatings
+      ? "min-w-[74rem]"
+      : "min-w-[62rem]";
 
   return (
     // The scroll container keeps a wide table from stretching the page layout.
     <div className="hidden overflow-x-auto rounded-lg border border-zinc-200 md:block dark:border-zinc-800">
-      <table
-        className={`w-full border-collapse text-sm ${
-          showRatings ? "min-w-[74rem]" : "min-w-[62rem]"
-        }`}
-      >
+      <table className={`w-full border-collapse text-sm ${minWidth}`}>
         <caption className="sr-only">
           Dentists found near the searched ZIP code, nearest first
         </caption>
@@ -68,6 +83,11 @@ export default function DentistTable({ dentists }: { dentists: Dentist[] }) {
             <th scope="col" className={HEADER_CLASS}>
               Map
             </th>
+            {showPms ? (
+              <th scope="col" className={HEADER_CLASS}>
+                PMS
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
@@ -109,6 +129,11 @@ export default function DentistTable({ dentists }: { dentists: Dentist[] }) {
               <td className="px-4 py-3">
                 <MapLink dentist={dentist} />
               </td>
+              {showPms ? (
+                <td className="px-4 py-3">
+                  <PmsValue scan={pmsScans[dentist.id]} />
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

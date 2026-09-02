@@ -14,6 +14,7 @@ import type { NextRequest } from "next/server";
 import { getConfig } from "@/lib/config";
 import { AppError, ConfigurationError, RateLimitedError, toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { jobKeyFor, latestScans } from "@/lib/pms/jobs/store";
 import { getDentistSearchProvider } from "@/lib/providers";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { appendRows, ensureSheetReady } from "@/lib/sheets/client";
@@ -102,9 +103,20 @@ export async function POST(request: NextRequest): Promise<Response> {
       requireWebsite: query.requireWebsite,
     });
 
+    /*
+     * The PMS names come from this server's own scan of the same search, never
+     * from the browser: the same rule as the rows themselves. A dentist that
+     * was not scanned gets an empty cell.
+     */
+    const scans = latestScans(jobKeyFor(config.mapProvider, query));
+    const withPms = dentists.map((dentist) => {
+      const scan = scans.get(dentist.id);
+      return scan ? { ...dentist, pms: scan.pms } : dentist;
+    });
+
     // The searched ZIP rides along as its own column, so a sheet collecting
     // many searches records which one each row came from.
-    const appendedRows = await appendRows(config.sheets, target, dentists, {
+    const appendedRows = await appendRows(config.sheets, target, withPms, {
       zip: query.zip,
     });
 
@@ -113,6 +125,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       zip: query.zip,
       tab: target.tab,
       appendedRows,
+      pmsRows: withPms.filter((dentist) => dentist.pms !== null).length,
       // Which of the two write paths ran, since they fail in different ways.
       mode: target.mode,
       createdTab: target.createdTab,

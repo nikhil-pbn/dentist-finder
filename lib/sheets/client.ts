@@ -18,6 +18,7 @@ import {
 import type { SheetsConfig } from "@/lib/config";
 import { AppError, ConfigurationError, SearchError } from "@/lib/errors";
 import {
+  fixedColumnCount,
   sheetColumnsFor,
   type ExportContext,
 } from "@/lib/export-columns";
@@ -35,7 +36,7 @@ import {
   isOfficeWorkbook,
   uploadFile,
 } from "@/lib/sheets/drive";
-import { appendRowsToWorkbook } from "@/lib/sheets/xlsx-edit";
+import { appendRowsToWorkbook, columnLetter } from "@/lib/sheets/xlsx-edit";
 import type { Dentist } from "@/lib/types";
 
 const LABEL = "Google Sheets";
@@ -66,14 +67,6 @@ export interface SheetTarget {
   fileName: string;
   createdTab: boolean;
   wroteHeader: boolean;
-}
-
-export interface SheetAppendResult {
-  tab: string;
-  appendedRows: number;
-  createdTab: boolean;
-  wroteHeader: boolean;
-  mode: SheetWriteMode;
 }
 
 /*
@@ -175,12 +168,21 @@ async function ensureTab(
   return true;
 }
 
-/** Writes the header row when the tab is empty. Never rewrites an existing one. */
+/**
+ * Writes the header row when the tab is empty. Never rewrites an existing one.
+ *
+ * One addition is allowed: a tab created before the PMS columns existed has a
+ * header that is exactly the first `fixedCount` of today's headers. Those tabs
+ * get the missing PMS headers written into the empty cells to its right, and
+ * nothing else is touched. A header that differs in any other way - fewer
+ * columns, a renamed one - is left alone, as before.
+ */
 async function ensureHeader(
   config: SheetsConfig,
   token: string,
   tab: string,
   headers: readonly string[],
+  fixedCount: number,
 ): Promise<boolean> {
   const range = `${encodeURIComponent(tab)}!A1:Z1`;
   const existing = await sheetsRequest<ValueRange>(
@@ -189,13 +191,31 @@ async function ensureHeader(
     config.spreadsheetId,
   );
 
-  if (existing.values?.[0]?.length) return false;
+  const current = (existing.values?.[0] ?? []).map(String);
 
+  if (current.length === 0) {
+    await sheetsRequest(
+      `${GOOGLE_SHEETS_API_BASE}/${config.spreadsheetId}/values/${range}?valueInputOption=RAW`,
+      token,
+      config.spreadsheetId,
+      { method: "PUT", body: JSON.stringify({ values: [headers] }) },
+    );
+    return true;
+  }
+
+  const isOlderHeader =
+    current.length >= fixedCount &&
+    current.length < headers.length &&
+    current.every((header, index) => header === headers[index]);
+  if (!isOlderHeader) return false;
+
+  const tail = headers.slice(current.length);
+  const tailRange = `${encodeURIComponent(tab)}!${columnLetter(current.length)}1:${columnLetter(headers.length - 1)}1`;
   await sheetsRequest(
-    `${GOOGLE_SHEETS_API_BASE}/${config.spreadsheetId}/values/${range}?valueInputOption=RAW`,
+    `${GOOGLE_SHEETS_API_BASE}/${config.spreadsheetId}/values/${tailRange}?valueInputOption=RAW`,
     token,
     config.spreadsheetId,
-    { method: "PUT", body: JSON.stringify({ values: [headers] }) },
+    { method: "PUT", body: JSON.stringify({ values: [tail] }) },
   );
   return true;
 }
@@ -238,7 +258,8 @@ export async function ensureSheetReady(
   provider: ProviderId,
 ): Promise<SheetTarget> {
   const tab = SHEET_TAB_NAMES[provider];
-  const headers = sheetColumnsFor(provider).map((column) => column.header);
+  const columns = sheetColumnsFor(provider);
+  const headers = columns.map((column) => column.header);
   const token = await getAccessToken(config);
   const meta = await getFileMeta(config.spreadsheetId, token);
 
@@ -275,7 +296,13 @@ export async function ensureSheetReady(
   }
 
   const createdTab = await ensureTab(config, token, tab);
-  const wroteHeader = await ensureHeader(config, token, tab, headers);
+  const wroteHeader = await ensureHeader(
+    config,
+    token,
+    tab,
+    headers,
+    fixedColumnCount(columns),
+  );
 
   return {
     tab,
@@ -337,29 +364,4 @@ export async function appendRows(
   }
 
   return rows.length;
-}
-
-/**
- * Appends the given results to the tab named for their provider.
- *
- * The provider decides the tab and the columns, which is why this is the one
- * place outside the registry that looks at a provider id: the two tabs exist
- * precisely because OSM and Google rows do not have the same shape.
- */
-export async function appendDentistsToSheet(
-  config: SheetsConfig,
-  provider: ProviderId,
-  dentists: readonly Dentist[],
-  context: ExportContext,
-): Promise<SheetAppendResult> {
-  const target = await ensureSheetReady(config, provider);
-  const appendedRows = await appendRows(config, target, dentists, context);
-
-  return {
-    tab: target.tab,
-    appendedRows,
-    createdTab: target.createdTab,
-    wroteHeader: target.wroteHeader,
-    mode: target.mode,
-  };
 }

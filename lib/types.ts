@@ -11,6 +11,7 @@ import type {
   RadiusMeters,
   ResultLimitOption,
 } from "@/lib/constants";
+import type { PMSJob } from "@/lib/pms/types";
 
 /** A geocoded point, as returned by a provider's ZIP lookup. */
 export interface GeoLocation {
@@ -75,6 +76,18 @@ export interface Dentist {
   reviews: number | null;
   businessStatus: string | null;
   categories: string[] | null;
+
+  /**
+   * The practice-management or patient-engagement vendor whose URLs appear on
+   * `website` - "Denticon", or "Weave, Denticon" when several - or null when
+   * none was found or no scan has run. Providers always set null; the PMS
+   * detector fills it, and the table, the file exports and the sheet all read
+   * it from here.
+   *
+   * Null is not evidence of "no PMS": it says only that the public website
+   * showed no known vendor URL.
+   */
+  pms: string | null;
 }
 
 /** A validated search request. Only ever produced by `lib/validation.ts`. */
@@ -129,3 +142,24 @@ export interface DentistSearchErrorResponse {
 export type DentistSearchApiResponse =
   | DentistSearchResponse
   | DentistSearchErrorResponse;
+
+/** Successful `POST /api/pms/detect` payload. */
+export interface PmsDetectStartResponse {
+  success: true;
+  jobId: string;
+  /** True when a scan of the same search was already running and was reused. */
+  reused: boolean;
+  job: PMSJob;
+}
+
+export type PmsDetectStartApiResponse =
+  | PmsDetectStartResponse
+  | DentistSearchErrorResponse;
+
+/** Successful `GET /api/pms/jobs/[jobId]` payload. */
+export interface PmsJobResponse {
+  success: true;
+  job: PMSJob;
+}
+
+export type PmsJobApiResponse = PmsJobResponse | DentistSearchErrorResponse;

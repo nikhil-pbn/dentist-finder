@@ -25,10 +25,6 @@ export function distanceInMeters(a: Coordinates, b: Coordinates): number {
   return 2 * EARTH_RADIUS_METERS * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-export function distanceInKm(a: Coordinates, b: Coordinates): number {
-  return distanceInMeters(a, b) / 1000;
-}
-
 export function roundKm(km: number, decimals = 2): number {
   const factor = 10 ** decimals;
   return Math.round(km * factor) / factor;

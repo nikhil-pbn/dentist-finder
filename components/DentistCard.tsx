@@ -1,5 +1,7 @@
 /** Mobile presentation of a single result: a table row is unusable at 375px. */
+import type { PmsScan } from "@/lib/pms/types";
 import type { Dentist } from "@/lib/types";
+import { PmsValue } from "@/components/PmsFields";
 import {
   DentistName,
   EmailValue,
@@ -15,9 +17,12 @@ import {
 export default function DentistCard({
   dentist,
   position,
+  pmsScan,
 }: {
   dentist: Dentist;
   position: number;
+  /** This practice's scan details, once a scan has run. */
+  pmsScan: PmsScan | undefined;
 }) {
   // Same rule as the desktop table: the row appears only where there is
   // something to put in it, so an OSM card never shows an empty Rating line.
@@ -72,6 +77,15 @@ export default function DentistCard({
             <MapLink dentist={dentist} />
           </dd>
         </div>
+        {/* Shown once this practice has been scanned, whatever the outcome. */}
+        {pmsScan ? (
+          <div className="flex gap-2">
+            <dt className="w-20 shrink-0 text-zinc-500 dark:text-zinc-400">PMS</dt>
+            <dd>
+              <PmsValue scan={pmsScan} />
+            </dd>
+          </div>
+        ) : null}
       </dl>
     </li>
   );

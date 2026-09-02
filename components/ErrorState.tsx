@@ -26,7 +26,7 @@ export default function ErrorState({
             {message}
           </p>
           {detail ? (
-            <p className="mt-2 font-mono text-xs leading-5 break-words text-red-700/90 dark:text-red-300/90">
+            <p className="mt-2 font-mono text-xs leading-5 wrap-break-word text-red-700/90 dark:text-red-300/90">
               {detail}
             </p>
           ) : null}
