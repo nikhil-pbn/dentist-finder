@@ -37,8 +37,8 @@ export interface PMSJobItem {
 
 export interface PMSJob {
   id: string;
-  /** STOPPED: ended early by the user; the results gathered so far stand. */
-  status: "RUNNING" | "DONE" | "STOPPED";
+  /** PAUSED: stopped by the user at some website; resumes from the next one. */
+  status: "RUNNING" | "PAUSED" | "DONE";
   total: number;
   processed: number;
   /** Dentists whose scan named at least one vendor. */

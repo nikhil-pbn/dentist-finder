@@ -221,11 +221,28 @@ export function fetchPmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJob
   );
 }
 
-/** Stops a running scan job; answers with its final state. */
-export function stopPmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJobResponse> {
+function patchPmsJob(
+  jobId: string,
+  action: "pause" | "resume",
+  signal?: AbortSignal,
+): Promise<PmsJobResponse> {
   return requestPms<PmsJobApiResponse & { success: true }>(
     `${PMS_JOBS_ENDPOINT}/${encodeURIComponent(jobId)}`,
-    { method: "DELETE" },
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    },
     signal,
   );
+}
+
+/** Stops a running scan where it is; answers with the job as it stands. */
+export function pausePmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJobResponse> {
+  return patchPmsJob(jobId, "pause", signal);
+}
+
+/** Lets a stopped scan continue from the next unscanned website. */
+export function resumePmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJobResponse> {
+  return patchPmsJob(jobId, "resume", signal);
 }

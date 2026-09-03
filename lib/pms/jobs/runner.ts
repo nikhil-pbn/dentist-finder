@@ -6,6 +6,9 @@
  * the same way, and the next website starts. Counters are updated after every
  * dentist, so a poll always sees the latest state.
  *
+ * The user can stop a job at any point and resume it later: the lanes simply
+ * wait while the job is paused, so it continues from the next unscanned site.
+ *
  * Server-only.
  */
 import { logger } from "@/lib/logger";
@@ -21,17 +24,26 @@ import type { PMSJob, PMSJobItem, PmsScan } from "@/lib/pms/types";
  */
 const SITE_HARD_LIMIT_MS = PMS_CRAWL_LIMITS.siteTimeBudgetMs + 30_000;
 
-/** Runs `worker` over `items`, at most `limit` at a time, while `proceed()` holds. */
-async function mapWithConcurrency<T>(
-  items: readonly T[],
+/** How often a lane looks whether a stopped job has been resumed. */
+const PAUSE_POLL_MS = 500;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs `worker` over the job's unscanned items, at most `limit` at a time. A
+ * stopped job keeps its place: the lanes wait for it to resume, and give up
+ * only once the job is finished or has been forgotten.
+ */
+async function runLanes(
+  job: PMSJob,
   limit: number,
-  proceed: () => boolean,
-  worker: (item: T) => Promise<void>,
+  worker: (item: PMSJobItem) => Promise<void>,
 ): Promise<void> {
-  const queue = [...items];
+  const queue = job.items.filter((item) => item.scan === null);
   const lanes = Array.from({ length: Math.max(1, Math.min(limit, queue.length)) }, async () => {
     for (;;) {
-      if (!proceed()) return;
+      while (job.status === "PAUSED") await sleep(PAUSE_POLL_MS);
+      if (job.status !== "RUNNING") return;
       const next = queue.shift();
       if (next === undefined) return;
       await worker(next);
@@ -69,9 +81,7 @@ function scanOne(item: PMSJobItem): Promise<PmsScan> {
 /** Processes every item of the job in place, then marks it finished. */
 export async function runJob(job: PMSJob): Promise<void> {
   const startedAt = Date.now();
-  // A stopped job lets the sites in progress finish and starts no new one.
-  const proceed = (): boolean => job.status === "RUNNING";
-  await mapWithConcurrency(job.items, PMS_MAX_CONCURRENT_SITES, proceed, async (item) => {
+  await runLanes(job, PMS_MAX_CONCURRENT_SITES, async (item) => {
     const scan = await scanOne(item);
     item.scan = scan;
     job.processed += 1;

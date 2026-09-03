@@ -750,7 +750,7 @@ or patient-engagement vendor: where "Book Appointment", "Patient Portal",
 results table ──► POST /api/pms/detect ──► job id
                                             │
       GET /api/pms/jobs/<id> ◄── browser polls ──► PMS column fills in
-      DELETE /api/pms/jobs/<id> ◄── Stop button ──► job ends, names so far kept
+      PATCH /api/pms/jobs/<id> ◄── Stop / Resume ──► scan holds its place, or goes on
                                             │
               homepage ──► appointment / portal / forms / contact pages
               ──► follow redirects ──► match every URL's host against

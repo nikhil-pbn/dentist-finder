@@ -43,12 +43,16 @@ returns and answers with a job id; the browser polls `GET /api/pms/jobs/<id>`
 every two seconds and fills the table as results arrive. A failed poll is
 retried rather than treated as the end, and a job the server has forgotten
 (it restarted) is started again once. Clicking the button again while a job is
-running returns the same job; clicking it after the job has finished scans
-again. "Stop" sends `DELETE /api/pms/jobs/<id>`: the sites being scanned at
-that moment finish, no further one starts, and the names found so far stay in
-the table and available to "Save to spreadsheet". While a scan runs, the
-search form, "Save to spreadsheet" and both exports are disabled, and while a
-search runs "Detect PMS" is, so the two never overlap. There is no result cache. Jobs live in the server
+running or stopped returns the same job; clicking it after the job has
+finished scans again. "Stop" sends `PATCH /api/pms/jobs/<id>` with
+`{"action":"pause"}`: the sites being scanned at that moment finish, no
+further one starts, and the job keeps its place. "Resume" sends
+`{"action":"resume"}` and the scan continues from the next unscanned website.
+While stopped, the names found so far are in the table and are what the
+exports and "Save to spreadsheet" use; a job left stopped for an hour is
+forgotten. While a scan runs, the search form, "Save to spreadsheet" and both
+exports are disabled, and while a search runs "Detect PMS" is, so the two
+never overlap. There is no result cache. Jobs live in the server
 process for an hour, which is what lets "Save to spreadsheet" fill the PMS cell:
 the server re-runs the search and attaches the names from its own scan of that
 search, so the browser never supplies them. A save more than an hour after the

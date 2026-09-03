@@ -6,13 +6,14 @@
  * know - it finished over an hour ago, or the server restarted - is a 404,
  * which the client treats as "start again".
  *
- * DELETE /api/pms/jobs/[jobId]
+ * PATCH /api/pms/jobs/[jobId]  with  { "action": "pause" | "resume" }
  *
- * Stops the scan. The job stays readable with the results gathered so far.
+ * Stops the scan where it is, or lets a stopped scan continue from the next
+ * unscanned website. Either way the job stays readable.
  */
 import type { NextRequest } from "next/server";
 import { logger } from "@/lib/logger";
-import { getJob, snapshot, stopJob } from "@/lib/pms/jobs/store";
+import { getJob, pauseJob, resumeJob, snapshot } from "@/lib/pms/jobs/store";
 import type { PMSJob } from "@/lib/pms/types";
 import type { DentistSearchErrorResponse, PmsJobResponse } from "@/lib/types";
 
@@ -56,10 +57,38 @@ export async function GET(_request: NextRequest, { params }: Params): Promise<Re
   return job instanceof Response ? job : jobResponse(job);
 }
 
-export async function DELETE(_request: NextRequest, { params }: Params): Promise<Response> {
+type JobAction = "pause" | "resume";
+
+/** The action in a PATCH body, or null unless it is `{ "action": "pause" | "resume" }`. */
+async function readAction(request: NextRequest): Promise<JobAction | null> {
+  try {
+    const body: unknown = await request.json();
+    if (body && typeof body === "object" && "action" in body) {
+      const action = (body as { action: unknown }).action;
+      if (action === "pause" || action === "resume") return action;
+    }
+  } catch {
+    // Not JSON: reported below as an invalid request.
+  }
+  return null;
+}
+
+export async function PATCH(request: NextRequest, { params }: Params): Promise<Response> {
   const job = await resolveJob(params);
   if (job instanceof Response) return job;
-  stopJob(job);
-  logger.info("pms_job_stopped", { jobId: job.id, processed: job.processed, total: job.total });
+
+  const action = await readAction(request);
+  if (!action) {
+    const body: DentistSearchErrorResponse = {
+      success: false,
+      error: 'The action must be "pause" or "resume".',
+      code: "INVALID_PARAMETER",
+    };
+    return Response.json(body, { status: 400 });
+  }
+
+  if (action === "pause") pauseJob(job);
+  else resumeJob(job);
+  logger.info(`pms_job_${action}d`, { jobId: job.id, processed: job.processed, total: job.total });
   return jobResponse(job);
 }

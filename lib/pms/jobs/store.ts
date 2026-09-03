@@ -34,18 +34,24 @@ interface StoredJob {
 const jobs: Map<string, StoredJob> = ((globalThis as { __pmsJobs?: Map<string, StoredJob> }).__pmsJobs ??=
   new Map());
 
+/** Forgets a job. Lanes waiting on a stopped job must not wait forever for it. */
+function drop(id: string, stored: StoredJob): void {
+  jobs.delete(id);
+  if (stored.job.status === "PAUSED") stored.job.status = "DONE";
+}
+
 function prune(now: number): void {
   for (const [id, stored] of jobs) {
-    if (stored.expiresAt !== null && stored.expiresAt <= now) jobs.delete(id);
+    if (stored.expiresAt !== null && stored.expiresAt <= now) drop(id, stored);
   }
-  // Still too many: drop the oldest finished ones first.
+  // Still too many: drop the oldest finished or stopped ones first.
   if (jobs.size > PMS_MAX_JOBS) {
-    const finished = [...jobs.entries()]
+    const inactive = [...jobs.entries()]
       .filter(([, stored]) => stored.job.status !== "RUNNING")
       .sort(([, a], [, b]) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0));
-    for (const [id] of finished) {
+    for (const [id, stored] of inactive) {
       if (jobs.size <= PMS_MAX_JOBS) break;
-      jobs.delete(id);
+      drop(id, stored);
     }
   }
 }
@@ -61,10 +67,10 @@ export function jobKeyFor(provider: string, query: SearchQuery): string {
   ].join("|");
 }
 
-/** A running job for this search, if there is one. */
+/** The job for this search that is still going, running or stopped, if any. */
 export function findActiveJob(key: string): PMSJob | null {
   for (const stored of jobs.values()) {
-    if (stored.key === key && stored.job.status === "RUNNING") return stored.job;
+    if (stored.key === key && stored.job.status !== "DONE") return stored.job;
   }
   return null;
 }
@@ -119,14 +125,23 @@ export function finishJob(job: PMSJob): void {
 }
 
 /**
- * Ends a running job at the user's request. The websites being scanned at that
- * moment finish; no further one starts. The names found so far stay readable,
- * for the table and for "Save to spreadsheet", for the usual hour.
+ * Holds a running job where it is. The websites being scanned at that moment
+ * finish; no further one starts until `resumeJob`. The names found so far stay
+ * readable for the table, the exports and "Save to spreadsheet". A job left
+ * stopped is forgotten after the usual hour.
  */
-export function stopJob(job: PMSJob): void {
+export function pauseJob(job: PMSJob): void {
   if (job.status !== "RUNNING") return;
-  job.status = "STOPPED";
+  job.status = "PAUSED";
   scheduleRemoval(job);
+}
+
+/** Lets a stopped job continue from the next unscanned website. */
+export function resumeJob(job: PMSJob): void {
+  if (job.status !== "PAUSED") return;
+  job.status = "RUNNING";
+  const stored = jobs.get(job.id);
+  if (stored) stored.expiresAt = null;
 }
 
 /** A detached copy safe to serialise while the runner keeps mutating the job. */
