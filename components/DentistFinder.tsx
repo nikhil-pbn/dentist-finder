@@ -36,6 +36,7 @@ export default function DentistFinder({
     detail?: string;
   } | null>(null);
   const [pendingQuery, setPendingQuery] = useState<SearchQuery | null>(null);
+  const [pmsRunning, setPmsRunning] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
   const lastQuery = useRef<SearchQuery>(initial.query);
 
@@ -97,6 +98,7 @@ export default function DentistFinder({
         <DentistSearchForm
           initialQuery={initial.query}
           isSearching={isSearching}
+          pmsRunning={pmsRunning}
           onSearch={(query) => void runSearch(query)}
         />
       </div>
@@ -135,6 +137,7 @@ export default function DentistFinder({
             result={result}
             isStale={isSearching}
             sheetsEnabled={sheetsEnabled}
+            onPmsRunningChange={setPmsRunning}
           />
         ) : null}
       </div>

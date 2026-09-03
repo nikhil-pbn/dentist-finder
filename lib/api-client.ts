@@ -220,3 +220,12 @@ export function fetchPmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJob
     signal,
   );
 }
+
+/** Stops a running scan job; answers with its final state. */
+export function stopPmsJob(jobId: string, signal?: AbortSignal): Promise<PmsJobResponse> {
+  return requestPms<PmsJobApiResponse & { success: true }>(
+    `${PMS_JOBS_ENDPOINT}/${encodeURIComponent(jobId)}`,
+    { method: "DELETE" },
+    signal,
+  );
+}

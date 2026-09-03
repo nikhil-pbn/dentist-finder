@@ -23,7 +23,7 @@ import DentistTable from "@/components/DentistTable";
 import PmsDetectionPanel from "@/components/PmsDetectionPanel";
 
 const EXPORT_BUTTON_CLASS =
-  "rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900";
+  "rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900";
 
 /** Nothing is claimed to have been saved until the server says it was. */
 type SaveState =
@@ -36,17 +36,28 @@ export default function DentistResults({
   result,
   isStale,
   sheetsEnabled,
+  onPmsRunningChange,
 }: {
   result: DentistSearchResponse;
   /** True while a newer search is running, so the user knows this is the old set. */
   isStale: boolean;
   /** False when the server has no Sheets credentials; the button is then hidden. */
   sheetsEnabled: boolean;
+  /** Lets the search form lock while a scan runs. */
+  onPmsRunningChange: (running: boolean) => void;
 }) {
   const { query, location, count, dentists: found } = result;
   const [save, setSave] = useState<SaveState>({ status: "idle" });
   const [pmsScans, setPmsScans] = useState<Record<string, PmsScan>>({});
   const [pmsRunning, setPmsRunning] = useState(false);
+
+  const handlePmsRunning = useCallback(
+    (running: boolean) => {
+      setPmsRunning(running);
+      onPmsRunningChange(running);
+    },
+    [onPmsRunningChange],
+  );
 
   const handlePmsResults = useCallback((scans: Record<string, PmsScan>) => {
     setPmsScans((current) => ({ ...current, ...scans }));
@@ -138,8 +149,8 @@ export default function DentistResults({
             <button
               type="button"
               onClick={() => void handleSheetSave()}
-              disabled={save.status === "saving"}
-              className={`${EXPORT_BUTTON_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+              disabled={pmsRunning || save.status === "saving"}
+              className={EXPORT_BUTTON_CLASS}
             >
               {save.status === "saving" ? "Saving..." : "Save to spreadsheet"}
             </button>
@@ -147,6 +158,7 @@ export default function DentistResults({
           <button
             type="button"
             onClick={handleExcelExport}
+            disabled={pmsRunning}
             className={EXPORT_BUTTON_CLASS}
           >
             Export Excel
@@ -154,6 +166,7 @@ export default function DentistResults({
           <button
             type="button"
             onClick={handleCsvExport}
+            disabled={pmsRunning}
             className={EXPORT_BUTTON_CLASS}
           >
             Export CSV
@@ -164,11 +177,6 @@ export default function DentistResults({
       {/* Announced politely, so the outcome of a save is not silent for a
           screen reader. Reports the row count the server confirmed. */}
       <div aria-live="polite" className="mb-4 empty:mb-0">
-        {pmsRunning ? (
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
-            PMS scan still running. Rows saved or exported now carry the names found so far.
-          </p>
-        ) : null}
         {save.status === "saved" ? (
           <p className="text-sm text-teal-700 dark:text-teal-400">
             Added {save.rows} {save.rows === 1 ? "row" : "rows"} to the{" "}
@@ -193,8 +201,9 @@ export default function DentistResults({
       <div className="mb-4">
         <PmsDetectionPanel
           query={query}
+          disabled={isStale}
           onResults={handlePmsResults}
-          onRunningChange={setPmsRunning}
+          onRunningChange={handlePmsRunning}
         />
       </div>
 

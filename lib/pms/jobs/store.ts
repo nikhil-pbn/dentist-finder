@@ -26,7 +26,13 @@ interface StoredJob {
   expiresAt: number | null;
 }
 
-const jobs = new Map<string, StoredJob>();
+/*
+ * Kept on globalThis so that, in development, a hot reload of a server module
+ * does not replace the registry mid-scan and turn a running job into a 404.
+ * In production the module is evaluated once and this is an ordinary Map.
+ */
+const jobs: Map<string, StoredJob> = ((globalThis as { __pmsJobs?: Map<string, StoredJob> }).__pmsJobs ??=
+  new Map());
 
 function prune(now: number): void {
   for (const [id, stored] of jobs) {
@@ -35,7 +41,7 @@ function prune(now: number): void {
   // Still too many: drop the oldest finished ones first.
   if (jobs.size > PMS_MAX_JOBS) {
     const finished = [...jobs.entries()]
-      .filter(([, stored]) => stored.job.status === "DONE")
+      .filter(([, stored]) => stored.job.status !== "RUNNING")
       .sort(([, a], [, b]) => (a.expiresAt ?? 0) - (b.expiresAt ?? 0));
     for (const [id] of finished) {
       if (jobs.size <= PMS_MAX_JOBS) break;
@@ -101,11 +107,26 @@ export function getJob(id: string): PMSJob | null {
   return jobs.get(id)?.job ?? null;
 }
 
-/** Marks a job finished and schedules its removal. */
-export function finishJob(job: PMSJob): void {
-  job.status = "DONE";
+function scheduleRemoval(job: PMSJob): void {
   const stored = jobs.get(job.id);
   if (stored) stored.expiresAt = Date.now() + PMS_JOB_TTL_MS;
+}
+
+/** Marks a job finished, unless it was stopped first, and schedules its removal. */
+export function finishJob(job: PMSJob): void {
+  if (job.status === "RUNNING") job.status = "DONE";
+  scheduleRemoval(job);
+}
+
+/**
+ * Ends a running job at the user's request. The websites being scanned at that
+ * moment finish; no further one starts. The names found so far stay readable,
+ * for the table and for "Save to spreadsheet", for the usual hour.
+ */
+export function stopJob(job: PMSJob): void {
+  if (job.status !== "RUNNING") return;
+  job.status = "STOPPED";
+  scheduleRemoval(job);
 }
 
 /** A detached copy safe to serialise while the runner keeps mutating the job. */

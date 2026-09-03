@@ -40,9 +40,15 @@ live in the scan job's response and never reach a sheet or a file.
 
 `POST /api/pms/detect?<search query>` starts a job for the dentists that search
 returns and answers with a job id; the browser polls `GET /api/pms/jobs/<id>`
-every two seconds and fills the table as results arrive. Clicking the button
-again while a job is running returns the same job; clicking it after the job
-has finished scans again. There is no result cache. Jobs live in the server
+every two seconds and fills the table as results arrive. A failed poll is
+retried rather than treated as the end, and a job the server has forgotten
+(it restarted) is started again once. Clicking the button again while a job is
+running returns the same job; clicking it after the job has finished scans
+again. "Stop" sends `DELETE /api/pms/jobs/<id>`: the sites being scanned at
+that moment finish, no further one starts, and the names found so far stay in
+the table and available to "Save to spreadsheet". While a scan runs, the
+search form, "Save to spreadsheet" and both exports are disabled, and while a
+search runs "Detect PMS" is, so the two never overlap. There is no result cache. Jobs live in the server
 process for an hour, which is what lets "Save to spreadsheet" fill the PMS cell:
 the server re-runs the search and attaches the names from its own scan of that
 search, so the browser never supplies them. A save more than an hour after the
@@ -50,7 +56,9 @@ scan, or after a server restart, writes empty PMS cells.
 
 Crawl limits are constants in [`lib/pms/constants.ts`](../lib/pms/constants.ts):
 8 pages and 12 requests per site, 10 s per request, 5 redirects, 5 external
-destinations, 60 s per site, 3 sites at a time. There is no browser rendering;
+destinations, 60 s per site (cut off at 90 s regardless), 3 sites at a time. A
+site that fails or overruns is recorded as null with a note and the job moves
+on; nothing about one website stops the others. There is no browser rendering;
 a site whose links exist only after JavaScript runs reports null with a note
 saying so.
 

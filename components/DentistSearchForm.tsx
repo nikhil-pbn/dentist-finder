@@ -27,10 +27,13 @@ const LABEL_CLASS =
 export default function DentistSearchForm({
   initialQuery,
   isSearching,
+  pmsRunning,
   onSearch,
 }: {
   initialQuery: SearchQuery;
   isSearching: boolean;
+  /** True while a PMS scan runs below; a new search then would orphan it. */
+  pmsRunning: boolean;
   onSearch: (query: SearchQuery) => void;
 }) {
   const [zip, setZip] = useState(initialQuery.zip);
@@ -41,11 +44,14 @@ export default function DentistSearchForm({
   const [requireWebsite, setRequireWebsite] = useState(initialQuery.requireWebsite);
   const [zipError, setZipError] = useState<string | null>(null);
 
+  // One thing at a time: a duplicate submit while a search is running would
+  // double the load on the public endpoints, and a new search while a PMS scan
+  // runs would replace the results that scan is filling in.
+  const disabled = isSearching || pmsRunning;
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    // A duplicate submit while a search is running would double the load on the
-    // public endpoints for no benefit.
-    if (isSearching) return;
+    if (disabled) return;
 
     const validationError = getZipValidationError(zip);
     setZipError(validationError);
@@ -73,7 +79,7 @@ export default function DentistSearchForm({
           placeholder="92618"
           maxLength={10}
           value={zip}
-          disabled={isSearching}
+          disabled={disabled}
           aria-invalid={zipError ? true : undefined}
           aria-describedby={zipError ? "zip-error" : "zip-hint"}
           onChange={(event) => {
@@ -112,7 +118,7 @@ export default function DentistSearchForm({
           id="limit"
           name="limit"
           value={limit === null ? UNLIMITED_LIMIT_PARAM : limit}
-          disabled={isSearching}
+          disabled={disabled}
           onChange={(event) =>
             setLimit(
               event.target.value === UNLIMITED_LIMIT_PARAM
@@ -140,7 +146,7 @@ export default function DentistSearchForm({
           id="radius"
           name="radius"
           value={radiusMeters}
-          disabled={isSearching}
+          disabled={disabled}
           onChange={(event) =>
             setRadiusMeters(Number(event.target.value) as RadiusMeters)
           }
@@ -162,7 +168,7 @@ export default function DentistSearchForm({
             type="checkbox"
             name="requireWebsite"
             checked={requireWebsite}
-            disabled={isSearching}
+            disabled={disabled}
             onChange={(event) => setRequireWebsite(event.target.checked)}
             className="size-4 rounded border-zinc-300 accent-teal-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700"
           />
@@ -171,7 +177,7 @@ export default function DentistSearchForm({
 
         <button
           type="submit"
-          disabled={isSearching}
+          disabled={disabled}
           className="w-full rounded-md bg-teal-700 px-5 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-teal-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:bg-teal-700/60 sm:w-auto"
         >
           {isSearching ? "Searching..." : "Find dentists"}
