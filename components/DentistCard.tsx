@@ -16,11 +16,9 @@ import {
 
 export default function DentistCard({
   dentist,
-  position,
   pmsScan,
 }: {
   dentist: Dentist;
-  position: number;
   /** This practice's scan details, once a scan has run. */
   pmsScan: PmsScan | undefined;
 }) {
@@ -30,14 +28,9 @@ export default function DentistCard({
 
   return (
     <li className="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex gap-2">
-        <span className="text-sm text-zinc-400 tabular-nums dark:text-zinc-500">
-          {position}.
-        </span>
-        <h3 className="text-base leading-6">
-          <DentistName dentist={dentist} />
-        </h3>
-      </div>
+      <h3 className="text-base leading-6">
+        <DentistName dentist={dentist} />
+      </h3>
 
       <dl className="mt-3 space-y-1.5 text-sm">
         <div className="flex gap-2">

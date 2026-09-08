@@ -35,26 +35,16 @@ export default function DentistTable({
   // The PMS column appears once a scan has produced its first result.
   const showPms = Object.keys(pmsScans).length > 0;
 
-  const minWidth = showPms
-    ? showRatings
-      ? "min-w-[92rem]"
-      : "min-w-[80rem]"
-    : showRatings
-      ? "min-w-[74rem]"
-      : "min-w-[62rem]";
-
   return (
-    // The scroll container keeps a wide table from stretching the page layout.
+    // The table fits the page: short columns stay on one line, long values wrap.
+    // The scroll container is only a safety net for a narrow window.
     <div className="hidden overflow-x-auto rounded-lg border border-zinc-200 md:block dark:border-zinc-800">
-      <table className={`w-full border-collapse text-sm ${minWidth}`}>
+      <table className="w-full border-collapse text-sm">
         <caption className="sr-only">
           Dentists found near the searched ZIP code, nearest first
         </caption>
         <thead className="bg-zinc-50 dark:bg-zinc-900">
           <tr>
-            <th scope="col" className={`${HEADER_CLASS} w-12`}>
-              #
-            </th>
             <th scope="col" className={HEADER_CLASS}>
               Dentist
             </th>
@@ -91,14 +81,11 @@ export default function DentistTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {dentists.map((dentist, index) => (
+          {dentists.map((dentist) => (
             <tr
               key={dentist.id}
               className="align-top transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-900/60"
             >
-              <td className="px-4 py-3 text-zinc-400 tabular-nums dark:text-zinc-500">
-                {index + 1}
-              </td>
               <td className="px-4 py-3">
                 <DentistName dentist={dentist} />
               </td>
@@ -107,13 +94,13 @@ export default function DentistTable({
                   <MissingValue label="No address available" />
                 )}
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 whitespace-nowrap">
                 <PhoneValue phone={dentist.phone} />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 break-all">
                 <EmailValue email={dentist.email} />
               </td>
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 whitespace-nowrap">
                 <WebsiteLink dentist={dentist} />
               </td>
               {showRatings ? (
@@ -126,7 +113,7 @@ export default function DentistTable({
                   </td>
                 </>
               ) : null}
-              <td className="px-4 py-3">
+              <td className="px-4 py-3 whitespace-nowrap">
                 <MapLink dentist={dentist} />
               </td>
               {showPms ? (

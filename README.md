@@ -56,7 +56,9 @@ Browser ──► /api/dentists ──► getDentistSearchProvider() ──► O
 | Website filter | On by default. Restricts results to practices that have a website. |
 
 Results are shown nearest-first as a table on desktop (Dentist, Address, Phone,
-Email, Website, Map) and as cards on mobile. **Rating and Reviews columns appear
+Email, Website, Map, PMS) and as cards on mobile, 20 per page with a pager
+underneath (shadcn/ui Pagination). Paging is for reading only: the exports, the
+spreadsheet save and the PMS scan always cover every result. **Rating and Reviews columns appear
 whenever the results carry them** — which today means under Google. The rule is
 `hasRatings(dentists)`, a check on the data rather than on `dentist.source`, so
 OSM searches never show two columns of dashes and a future provider gets the
@@ -186,12 +188,16 @@ components/
 ├── DentistTable.tsx          Desktop presentation
 ├── DentistCard.tsx           Mobile presentation
 ├── DentistFields.tsx         Shared value rendering (missing values, links, phone)
+├── PmsDetectionPanel.tsx     Detect PMS / Stop buttons and the progress line
+├── PmsFields.tsx             PMS cell: vendor name, matched URL, note
 ├── EmptyState.tsx
 ├── ErrorState.tsx
-└── LoadingState.tsx
+├── LoadingState.tsx
+└── ui/                       shadcn/ui components (button, pagination)
 
 lib/
 ├── config.ts                 The only reader of process.env
+├── utils.ts                  cn() for shadcn/ui class merging
 ├── constants.ts              Every limit, radius, timeout and TTL
 ├── types.ts                  The normalised domain model
 ├── validation.ts             Request validation (shared by route and form)

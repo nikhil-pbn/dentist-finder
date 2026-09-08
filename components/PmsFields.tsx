@@ -16,7 +16,7 @@ function shorten(url: string): string {
 export function PmsValue({ scan }: { scan: PmsScan | undefined }) {
   if (!scan) return <MissingValue label="Not scanned" />;
   return (
-    <div className="max-w-xs text-sm">
+    <div className="text-sm">
       {scan.pms !== null ? (
         <span className="font-medium text-zinc-900 dark:text-zinc-100">{scan.pms}</span>
       ) : (

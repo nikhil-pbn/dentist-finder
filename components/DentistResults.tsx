@@ -21,6 +21,31 @@ import type { DentistSearchResponse } from "@/lib/types";
 import DentistCard from "@/components/DentistCard";
 import DentistTable from "@/components/DentistTable";
 import PmsDetectionPanel from "@/components/PmsDetectionPanel";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
+
+/** Rows per page. Matches the smallest result limit, so a default search fits on one page. */
+const PAGE_SIZE = 20;
+
+/** First, last, the current page and its neighbours; "ellipsis" marks a gap. */
+function pageItems(current: number, total: number): (number | "ellipsis")[] {
+  const pages = [...new Set([1, total, current - 1, current, current + 1])]
+    .filter((n) => n >= 1 && n <= total)
+    .sort((a, b) => a - b);
+  const items: (number | "ellipsis")[] = [];
+  pages.forEach((n, i) => {
+    if (i > 0 && n - pages[i - 1] > 1) items.push("ellipsis");
+    items.push(n);
+  });
+  return items;
+}
 
 const EXPORT_BUTTON_CLASS =
   "rounded-md border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900";
@@ -75,6 +100,16 @@ export default function DentistResults({
       }),
     [found, pmsScans],
   );
+
+  // Paged for reading only: the exports, the save and the PMS scan always cover
+  // every result. A new search remounts this component, so the page resets.
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(dentists.length / PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const visible = dentists.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const firstRow = (currentPage - 1) * PAGE_SIZE + 1;
+  const lastRow = firstRow + visible.length - 1;
+  const goTo = (n: number): void => setPage(Math.min(Math.max(1, n), pageCount));
 
   // Both exports run against the results already in memory - deliberately no
   // second API call - and share one column definition, so the two files always
@@ -207,18 +242,77 @@ export default function DentistResults({
         />
       </div>
 
-      <DentistTable dentists={dentists} pmsScans={pmsScans} />
-
       <ul className="flex flex-col gap-3 md:hidden">
-        {dentists.map((dentist, index) => (
+        {visible.map((dentist) => (
           <DentistCard
             key={dentist.id}
             dentist={dentist}
-            position={index + 1}
             pmsScan={pmsScans[dentist.id]}
           />
         ))}
       </ul>
+
+      {/*
+       * Only the table may grow past the page column: up to 100rem, centred on
+       * the viewport, never narrower than the column. The pager travels with it.
+       */}
+      <div className="relative left-1/2 w-[max(100%,min(calc(100vw-4.5rem),100rem))] -translate-x-1/2">
+        <DentistTable dentists={visible} pmsScans={pmsScans} />
+
+        {pageCount > 1 ? (
+          <div className="mt-4 flex flex-col items-center gap-2 sm:flex-row sm:justify-between">
+            <p className="text-sm text-zinc-600 dark:text-zinc-400">
+              Showing {firstRow}&ndash;{lastRow} of {dentists.length}
+            </p>
+            <Pagination className="mx-0 w-auto">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    aria-disabled={currentPage === 1}
+                    className={currentPage === 1 ? "pointer-events-none opacity-50" : undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goTo(currentPage - 1);
+                    }}
+                  />
+                </PaginationItem>
+                {pageItems(currentPage, pageCount).map((item, index) =>
+                  item === "ellipsis" ? (
+                    <PaginationItem key={`gap-${index}`}>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  ) : (
+                    <PaginationItem key={item}>
+                      <PaginationLink
+                        href="#"
+                        isActive={item === currentPage}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          goTo(item);
+                        }}
+                      >
+                        {item}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ),
+                )}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    aria-disabled={currentPage === pageCount}
+                    className={currentPage === pageCount ? "pointer-events-none opacity-50" : undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      goTo(currentPage + 1);
+                    }}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

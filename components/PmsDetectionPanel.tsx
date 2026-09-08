@@ -16,6 +16,7 @@
  * If the server has forgotten the job (it restarted), the scan is started once
  * more rather than left half done.
  */
+import { CircleCheckIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   DentistSearchRequestError,
@@ -243,6 +244,7 @@ export default function PmsDetectionPanel({
   const job = "job" in state ? state.job : null;
   const percent = job && job.total > 0 ? Math.round((job.processed / job.total) * 100) : 0;
   const paused = state.status === "paused";
+  const finished = state.status === "finished";
 
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -262,7 +264,7 @@ export default function PmsDetectionPanel({
           disabled={running || disabled}
           className={PRIMARY_BUTTON_CLASS}
         >
-          {running ? "Detecting PMS..." : "Detect PMS"}
+          {running ? "Detecting PMS..." : finished ? "Scan again" : "Detect PMS"}
         </button>
       )}
 
@@ -296,10 +298,19 @@ export default function PmsDetectionPanel({
           <p
             role="status"
             aria-live="polite"
-            className="text-sm whitespace-nowrap text-zinc-600 dark:text-zinc-400"
+            className="flex items-center gap-1.5 text-sm whitespace-nowrap text-zinc-600 dark:text-zinc-400"
           >
-            {paused ? "Stopped at " : ""}
-            {job.processed} / {job.total} scanned &middot; {job.detected} with a PMS
+            {finished ? (
+              <>
+                <CircleCheckIcon className="size-4 text-teal-600 dark:text-teal-400" aria-hidden />
+                <span className="font-medium text-zinc-800 dark:text-zinc-200">Scan complete</span>
+                <span aria-hidden>&middot;</span>
+              </>
+            ) : null}
+            <span>
+              {paused ? "Stopped at " : ""}
+              {job.processed} / {job.total} scanned &middot; {job.detected} with a PMS
+            </span>
           </p>
         </div>
       ) : null}
