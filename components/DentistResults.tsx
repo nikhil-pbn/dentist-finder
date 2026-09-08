@@ -54,7 +54,14 @@ const EXPORT_BUTTON_CLASS =
 type SaveState =
   | { status: "idle" }
   | { status: "saving" }
-  | { status: "saved"; rows: number; tab: string; url: string }
+  | {
+      status: "saved";
+      added: number;
+      updated: number;
+      unchanged: number;
+      tab: string;
+      url: string;
+    }
   | { status: "error"; message: string };
 
 export default function DentistResults({
@@ -137,12 +144,14 @@ export default function DentistResults({
     try {
       // The query is sent, not the rows: the server re-runs the search, adds
       // the PMS names from its own scan of that search, and appends the result.
-      const appended = await saveToSheet(query);
+      const saved = await saveToSheet(query);
       setSave({
         status: "saved",
-        rows: appended.appendedRows,
-        tab: appended.tab,
-        url: appended.spreadsheetUrl,
+        added: saved.added,
+        updated: saved.updated,
+        unchanged: saved.unchanged,
+        tab: saved.tab,
+        url: saved.spreadsheetUrl,
       });
     } catch (error) {
       setSave({
@@ -214,7 +223,9 @@ export default function DentistResults({
       <div aria-live="polite" className="mb-4 empty:mb-0">
         {save.status === "saved" ? (
           <p className="text-sm text-teal-700 dark:text-teal-400">
-            Added {save.rows} {save.rows === 1 ? "row" : "rows"} to the{" "}
+            {save.added + save.updated === 0
+              ? `Already up to date: all ${save.unchanged} rows were in the `
+              : `Added ${save.added}, updated ${save.updated}, unchanged ${save.unchanged} in the `}
             <span className="font-medium">{save.tab}</span> tab.{" "}
             <a
               href={save.url}

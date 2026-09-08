@@ -1,8 +1,9 @@
 /**
  * POST /api/dentists/save?zip=92618&limit=20&radius=15000&requireWebsite=1
  *
- * Appends the results of that search to the configured Google Sheet, in the tab
- * named for the active provider.
+ * Saves the results of that search into the configured Google Sheet, in the tab
+ * named for the active provider: new practices are appended, ones already
+ * there are updated where something changed, and the rest are left alone.
  *
  * It takes a *query*, not a list of rows. The browser could otherwise ask this
  * endpoint to write anything at all into someone's spreadsheet; instead the
@@ -17,7 +18,7 @@ import { logger } from "@/lib/logger";
 import { jobKeyFor, latestScans } from "@/lib/pms/jobs/store";
 import { getDentistSearchProvider } from "@/lib/providers";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { appendRows, ensureSheetReady } from "@/lib/sheets/client";
+import { ensureSheetReady, saveRows } from "@/lib/sheets/client";
 import { diagnoseSheets } from "@/lib/sheets/diagnose";
 import type { DentistSearchErrorResponse, SheetSaveResponse } from "@/lib/types";
 import { parseSearchQuery } from "@/lib/validation";
@@ -115,8 +116,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
 
     // The searched ZIP rides along as its own column, so a sheet collecting
-    // many searches records which one each row came from.
-    const appendedRows = await appendRows(config.sheets, target, withPms, {
+    // many searches records which one each row came from. Rows are matched on
+    // Map URL: new practices are appended, changed ones updated, the rest kept.
+    const saved = await saveRows(config.sheets, target, withPms, {
       zip: query.zip,
     });
 
@@ -124,7 +126,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       provider,
       zip: query.zip,
       tab: target.tab,
-      appendedRows,
+      ...saved,
       pmsRows: withPms.filter((dentist) => dentist.pms !== null).length,
       // Which of the two write paths ran, since they fail in different ways.
       mode: target.mode,
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const payload: SheetSaveResponse = {
       success: true,
       tab: target.tab,
-      appendedRows,
+      ...saved,
       spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${config.sheets.spreadsheetId}/edit`,
     };
 

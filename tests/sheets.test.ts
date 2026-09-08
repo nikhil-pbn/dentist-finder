@@ -12,7 +12,8 @@ import { ConfigurationError } from "@/lib/errors";
 import { sheetColumnsFor } from "@/lib/export-columns";
 import { buildAssertion, getAccessToken, resetAccessTokenCache } from "@/lib/sheets/auth";
 import {
-  appendRows,
+  planUpsert,
+  saveRows,
   ensureSheetReady,
   toSheetRows,
   type SheetTarget,
@@ -42,7 +43,7 @@ const CONFIG: SheetsConfig = {
 
 const fetchMock = vi.fn();
 
-/** What the save route does: prepare the tab, then append to it. */
+/** What the save route does: prepare the tab, then save into it. An empty tab means every row is added. */
 async function appendDentistsToSheet(
   config: SheetsConfig,
   provider: ProviderId,
@@ -50,7 +51,7 @@ async function appendDentistsToSheet(
   context: ExportContext,
 ): Promise<Pick<SheetTarget, "tab" | "createdTab" | "wroteHeader" | "mode"> & { appendedRows: number }> {
   const target = await ensureSheetReady(config, provider);
-  const appendedRows = await appendRows(config, target, dentists, context);
+  const { added: appendedRows } = await saveRows(config, target, dentists, context);
   return {
     tab: target.tab,
     appendedRows,
@@ -710,5 +711,51 @@ describe("diagnoseSheets", () => {
     expect(failed?.fix).toMatch(/Share the spreadsheet with sa@example/);
 
     vi.unstubAllEnvs();
+  });
+});
+
+describe("planUpsert", () => {
+  const headers = ["Name", "Address", "Phone", "Email", "Website", "Map URL", "Search ZIP", "PMS"];
+  const irvine = [
+    "Irvine Family Dental",
+    "123 Main St",
+    "+1 949-555-0100",
+    "",
+    "https://example.com/",
+    "https://www.openstreetmap.org/node/1",
+    "92618",
+    "",
+  ];
+  const existing = [headers, irvine];
+
+  it("appends a practice the tab has never seen", () => {
+    const row = ["New Dental", "1 Elm St", "", "", "", "https://www.openstreetmap.org/node/2", "92618", ""];
+    expect(planUpsert(existing, headers, [row])).toEqual({ additions: [row], updates: [], unchanged: 0 });
+  });
+
+  it("leaves a practice alone when nothing changed, even when found by another search", () => {
+    const row = [...irvine];
+    row[6] = "92630";
+    expect(planUpsert(existing, headers, [row])).toEqual({ additions: [], updates: [], unchanged: 1 });
+  });
+
+  it("rewrites the row when a value changed, without blanking what the sheet has", () => {
+    const row = [...irvine];
+    row[2] = "";
+    row[7] = "Weave";
+    const expected = [...irvine];
+    expected[7] = "Weave";
+    expect(planUpsert(existing, headers, [row])).toEqual({
+      additions: [],
+      updates: [{ row: 2, values: expected }],
+      unchanged: 0,
+    });
+  });
+
+  it("matches the first of two duplicate rows left by earlier saves", () => {
+    const row = [...irvine];
+    row[7] = "Weave";
+    const plan = planUpsert([headers, irvine, irvine], headers, [row]);
+    expect(plan.updates.map((update) => update.row)).toEqual([2]);
   });
 });

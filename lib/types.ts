@@ -123,8 +123,12 @@ export interface SheetSaveResponse {
   success: true;
   /** The tab the rows went into: the provider's own id. */
   tab: string;
-  /** How many rows were actually appended, never how many were requested. */
-  appendedRows: number;
+  /** Practices the tab had never seen, appended. */
+  added: number;
+  /** Practices already in the tab whose row changed. */
+  updated: number;
+  /** Practices already in the tab with nothing new to write. */
+  unchanged: number;
   spreadsheetUrl: string;
 }
 

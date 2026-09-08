@@ -1,10 +1,12 @@
 /**
- * Appends results to a Google Sheet, one tab per provider.
+ * Saves results to a Google Sheet, one tab per provider.
  *
  * The tab and its header row are created on first use, so a fresh spreadsheet
- * needs no manual setup. Rows are appended, never overwritten - the sheet is a
- * running log, and losing an earlier search to a later one would be a
- * surprising way to lose data.
+ * needs no manual setup. A save is an upsert keyed on the Map URL column, which
+ * is unique per practice: a practice the tab has never seen is appended, one it
+ * already has is updated in place where a value changed, and the rest are left
+ * alone. Nothing is ever deleted, and a blank in the new data never erases a
+ * value the sheet already holds.
  *
  * Server-only.
  */
@@ -40,6 +42,11 @@ import { appendRowsToWorkbook, columnLetter } from "@/lib/sheets/xlsx-edit";
 import type { Dentist } from "@/lib/types";
 
 const LABEL = "Google Sheets";
+
+/** The column that identifies a practice: an OSM element URL or a Google place URL. */
+const ROW_KEY_HEADER = "Map URL";
+/** Written once, when the practice first appears; a later search does not rewrite it. */
+const FIRST_SEEN_HEADER = "Search ZIP";
 
 /** A cell as the Sheets API accepts it. */
 type SheetCell = string | number;
@@ -347,21 +354,140 @@ async function appendViaDrive(
   await uploadFile(config.spreadsheetId, target.token, updated, XLSX_MIME);
 }
 
-/** Appends rows to a tab `ensureSheetReady` has already prepared. */
-export async function appendRows(
+/** What one save did to the tab. */
+export interface SaveSummary {
+  /** Practices the tab had never seen, appended. */
+  added: number;
+  /** Practices already in the tab whose row changed. */
+  updated: number;
+  /** Practices already in the tab with nothing new to write. */
+  unchanged: number;
+}
+
+/** One existing row to rewrite: its 1-based sheet row and the full new values. */
+export interface RowUpdate {
+  row: number;
+  values: SheetCell[];
+}
+
+export interface UpsertPlan {
+  additions: SheetCell[][];
+  updates: RowUpdate[];
+  unchanged: number;
+}
+
+/** Every row of the tab, header first, as the API returns it. */
+async function readTabRows(
+  config: SheetsConfig,
+  token: string,
+  tab: string,
+): Promise<string[][]> {
+  const range = `${encodeURIComponent(tab)}!A:Z`;
+  const existing = await sheetsRequest<ValueRange>(
+    `${GOOGLE_SHEETS_API_BASE}/${config.spreadsheetId}/values/${range}`,
+    token,
+    config.spreadsheetId,
+  );
+  return (existing.values ?? []).map((row) => row.map(String));
+}
+
+/**
+ * Decides, row by row, what a save has to write.
+ *
+ * A row whose key the tab does not have is appended. A row whose key it has is
+ * merged onto the existing one: a non-empty new value replaces the old, an
+ * empty one leaves the old in place (a scan that has not run must not blank a
+ * PMS found last time), and the Search ZIP keeps the value from the first save.
+ * The row is rewritten only when that merge changed something. A key the tab
+ * holds twice - saves made before this existed - matches its first occurrence.
+ */
+export function planUpsert(
+  existing: readonly string[][],
+  headers: readonly string[],
+  rows: readonly SheetCell[][],
+): UpsertPlan {
+  const keyIndex = headers.indexOf(ROW_KEY_HEADER);
+  const firstSeenIndex = headers.indexOf(FIRST_SEEN_HEADER);
+  const text = (cell: SheetCell | undefined): string => String(cell ?? "").trim();
+
+  const byKey = new Map<string, { row: number; cells: string[] }>();
+  existing.slice(1).forEach((cells, index) => {
+    const key = text(cells[keyIndex]);
+    if (key && !byKey.has(key)) byKey.set(key, { row: index + 2, cells });
+  });
+
+  const plan: UpsertPlan = { additions: [], updates: [], unchanged: 0 };
+  for (const row of rows) {
+    const found = keyIndex === -1 ? undefined : byKey.get(text(row[keyIndex]));
+    if (!found) {
+      plan.additions.push(row);
+      continue;
+    }
+    const merged = headers.map((_, i): SheetCell => {
+      const current = found.cells[i] ?? "";
+      if (i === firstSeenIndex && current.trim() !== "") return current;
+      return text(row[i]) === "" ? current : (row[i] as SheetCell);
+    });
+    const changed = merged.some((cell, i) => text(cell) !== text(found.cells[i]));
+    if (changed) plan.updates.push({ row: found.row, values: merged });
+    else plan.unchanged += 1;
+  }
+  return plan;
+}
+
+/** Rewrites existing rows through the Sheets API, one values.batchUpdate call. */
+async function updateViaSheets(
+  config: SheetsConfig,
+  target: SheetTarget,
+  updates: readonly RowUpdate[],
+): Promise<void> {
+  const last = columnLetter(target.headers.length - 1);
+  await sheetsRequest(
+    `${GOOGLE_SHEETS_API_BASE}/${config.spreadsheetId}/values:batchUpdate`,
+    target.token,
+    config.spreadsheetId,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        valueInputOption: "RAW",
+        data: updates.map((update) => ({
+          range: `${target.tab}!A${update.row}:${last}${update.row}`,
+          values: [update.values],
+        })),
+      }),
+    },
+  );
+}
+
+/**
+ * Saves rows into a tab `ensureSheetReady` has already prepared, and reports
+ * what that took.
+ *
+ * The workbook path can only append (see xlsx-edit.ts), so an uploaded .xlsx
+ * gets every row appended and no duplicate detection.
+ */
+export async function saveRows(
   config: SheetsConfig,
   target: SheetTarget,
   dentists: readonly Dentist[],
   context: ExportContext,
-): Promise<number> {
+): Promise<SaveSummary> {
   const rows = toSheetRows(dentists, target.provider, context);
-  if (rows.length === 0) return 0;
+  if (rows.length === 0) return { added: 0, updated: 0, unchanged: 0 };
 
   if (target.mode === "office") {
     await appendViaDrive(config, target, rows);
-  } else {
-    await appendViaSheets(config, target, rows);
+    return { added: rows.length, updated: 0, unchanged: 0 };
   }
 
-  return rows.length;
+  const existing = await readTabRows(config, target.token, target.tab);
+  const plan = planUpsert(existing, target.headers, rows);
+  if (plan.updates.length > 0) await updateViaSheets(config, target, plan.updates);
+  if (plan.additions.length > 0) await appendViaSheets(config, target, plan.additions);
+
+  return {
+    added: plan.additions.length,
+    updated: plan.updates.length,
+    unchanged: plan.unchanged,
+  };
 }

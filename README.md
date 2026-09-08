@@ -176,7 +176,7 @@ deliberately un-ignored and contains no secrets.
 ```
 app/
 ├── api/dentists/route.ts     GET /api/dentists — validate, call provider, serialise
-├── api/dentists/save/route.ts POST — re-run the search, append to the sheet
+├── api/dentists/save/route.ts POST — re-run the search, upsert into the sheet
 ├── layout.tsx
 ├── page.tsx                  Server Component: reads the URL, renders the shell
 └── globals.css
@@ -213,7 +213,7 @@ lib/
 ├── api-client.ts             The one place the browser calls the API
 ├── sheets/
 │   ├── auth.ts               Service-account JWT → access token
-│   └── client.ts             Tab + header bootstrap, then append
+│   └── client.ts             Tab + header bootstrap, then upsert on Map URL
 └── providers/
     ├── types.ts              The DentistSearchProvider interface
     ├── index.ts              Registry: config → implementation
@@ -660,9 +660,14 @@ Optional. Unset, the app is fully usable and the button is not rendered.
 
 **Two tabs, `osm` and `google`**, each with the columns its provider can fill.
 Both the tab and its header row are created on first use, so a fresh spreadsheet
-needs no manual setup. Rows are **appended, never overwritten** — the sheet is a
-running log, and losing an earlier search to a later one would be a surprising
-way to lose data.
+needs no manual setup. A save is an **upsert keyed on the Map URL column**, which
+is unique per practice: a practice the tab has never seen is appended, one it
+already has is rewritten only where a value changed, and the rest are left
+alone. The app reports the three counts after every save, so clicking twice
+adds nothing twice. Two rules keep old data safe: a blank in the new results
+never erases a value the sheet holds (a PMS found last month survives a save
+made before this month’s scan ran), and the Search ZIP keeps the value from
+the first save. Nothing is ever deleted.
 
 ### Setup
 
@@ -683,8 +688,8 @@ written the same way. The app checks which it has and picks the path:
 
 | Document | How rows are added |
 | --- | --- |
-| **Native Google Sheet** | Sheets API, one `values.append` per save |
-| **Uploaded .xlsx** | Drive API: fetch the workbook, insert the rows, write it back to the same file id |
+| **Native Google Sheet** | Sheets API: read the tab, `values.batchUpdate` the rows that changed, `values.append` the new ones |
+| **Uploaded .xlsx** | Drive API: fetch the workbook, insert the rows, write it back to the same file id. Append only, so a second save of the same search adds its rows again |
 
 The second exists because the Sheets API refuses Office files outright:
 
