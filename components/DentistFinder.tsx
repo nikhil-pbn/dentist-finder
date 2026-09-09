@@ -132,7 +132,7 @@ export default function DentistFinder({
         {result && result.count > 0 ? (
           <DentistResults
             // Keyed by the search, so a new search starts with a clean save
-            // state and no PMS results carried over from the previous one.
+            // state and No PMS results carried over from the previous one.
             key={toSearchParams(result.query).toString()}
             result={result}
             isStale={isSearching}

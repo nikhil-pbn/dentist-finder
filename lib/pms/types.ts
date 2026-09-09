@@ -15,6 +15,14 @@ export interface PmsMatch {
 }
 
 /** What scanning one website found. */
+/**
+ * The PMS value for a website that was inspected and named no vendor. Distinct
+ * from null, which means the website could not be inspected at all (no website,
+ * unreachable, blocked by robots.txt) or has not been scanned. Written to the
+ * table, the exports and the sheet as it is.
+ */
+export const PMS_NONE = "No PMS";
+
 export interface PmsScan {
   /** Vendor name, comma-separated when several were found, or null. */
   pms: string | null;

@@ -84,7 +84,7 @@ export interface Dentist {
    * detector fills it, and the table, the file exports and the sheet all read
    * it from here.
    *
-   * Null is not evidence of "no PMS": it says only that the public website
+   * Null is not evidence of "No PMS": it says only that the public website
    * showed no known vendor URL.
    */
   pms: string | null;

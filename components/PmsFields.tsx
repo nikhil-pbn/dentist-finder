@@ -1,10 +1,11 @@
 /**
- * The PMS cell, shared by the table and the cards: the vendor name, and under
- * it the URL that named it - or why nothing was found - so a result can be
- * checked by eye. Only the name goes to the spreadsheet and the file exports.
+ * The PMS cell, shared by the table and the cards: the vendor name and under it
+ * the URL that named it; "No PMS" for a site that was inspected and named none;
+ * a dash, with the reason, for a site that could not be inspected. Only the
+ * value itself goes to the spreadsheet and the file exports.
  */
 import { MissingValue } from "@/components/DentistFields";
-import type { PmsScan } from "@/lib/pms/types";
+import { PMS_NONE, type PmsScan } from "@/lib/pms/types";
 
 const URL_DISPLAY_MAX = 70;
 
@@ -17,10 +18,12 @@ export function PmsValue({ scan }: { scan: PmsScan | undefined }) {
   if (!scan) return <MissingValue label="Not scanned" />;
   return (
     <div className="text-sm">
-      {scan.pms !== null ? (
+      {scan.matches.length > 0 ? (
         <span className="font-medium text-zinc-900 dark:text-zinc-100">{scan.pms}</span>
+      ) : scan.pms === PMS_NONE ? (
+        <span className="font-medium text-zinc-500 dark:text-zinc-400">{PMS_NONE}</span>
       ) : (
-        <MissingValue label="No PMS found" />
+        <MissingValue label="Could not be checked" />
       )}
       {scan.matches.map((match) => (
         <a
@@ -35,7 +38,7 @@ export function PmsValue({ scan }: { scan: PmsScan | undefined }) {
           {shorten(match.url)}
         </a>
       ))}
-      {scan.pms === null && scan.note ? (
+      {scan.matches.length === 0 && scan.note ? (
         <p className="text-xs text-zinc-500 dark:text-zinc-400">{scan.note}</p>
       ) : null}
     </div>

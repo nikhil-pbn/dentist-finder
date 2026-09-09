@@ -917,9 +917,11 @@ team; `git log -- components/SiteFooter.tsx` has the previous implementation.
     every match in one plain table, with no pagination or virtualisation. That
     is fine for the hundreds a 50 km radius yields, but it is the one place
     where a very dense area will feel heavy in the browser.
-11. **A blank PMS cell is not "no PMS".** It means no known vendor URL appeared
-    on the public website, and most desktop systems leave none. See
-    [docs/pms-detection.md](docs/pms-detection.md).
+11. **"No PMS" means the website was checked and no known vendor URL appeared**
+    on it. Most desktop systems leave none, so it is not proof that the practice
+    runs nothing. A blank PMS cell means the site could not be checked at all
+    (no website, unreachable, blocked by robots.txt) or has not been scanned.
+    See [docs/pms-detection.md](docs/pms-detection.md).
 12. **PMS scan jobs live in one process for an hour**, like the search cache
     above, so a restart forgets them and a multi-instance deployment keeps its
     own per instance. "Save to spreadsheet" fills the PMS column from that

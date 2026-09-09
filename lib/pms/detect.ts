@@ -5,7 +5,8 @@
  *   new-patient / contact pages, following redirects -> collect every URL
  *   seen (links, form actions, iframes, scripts, redirect hops) -> match
  *   their hosts against `identifiers.ts` -> "Denticon", "Weave, Denticon",
- *   or null.
+ *   "No PMS" when the site was inspected and nothing matched, or null when it
+ *   could not be inspected.
  *
  * Never throws for a website problem: a site that cannot be fetched comes back
  * with `pms: null` and a note saying why.
@@ -19,9 +20,7 @@ import type { PageExtraction } from "@/lib/pms/crawler/extract";
 import type { FetchFailure } from "@/lib/pms/crawler/fetch";
 import { normalizeStartUrl } from "@/lib/pms/crawler/url";
 import { identifyUrl, PMS_IDENTIFIERS } from "@/lib/pms/identifiers";
-import type { PmsMatch, PmsScan } from "@/lib/pms/types";
-
-const NO_MATCH = "No supported PMS URL found";
+import { PMS_NONE, type PmsMatch, type PmsScan } from "@/lib/pms/types";
 
 function urlsOf(extraction: PageExtraction): string[] {
   return [
@@ -63,13 +62,16 @@ export function matchUrls(urls: readonly string[]): PmsMatch[] {
     .map(([name, url]) => ({ name, url }));
 }
 
-function toScan(matches: PmsMatch[], noteWhenEmpty: string): PmsScan {
-  const found = matches.length > 0;
-  return {
-    pms: found ? matches.map((match) => match.name).join(", ") : null,
-    matches,
-    note: found ? null : noteWhenEmpty,
-  };
+/**
+ * Shapes the result. `inspected` says whether the website was actually looked
+ * at: an inspected site with no match is "No PMS"; one that could not be
+ * inspected stays null, with the note saying why.
+ */
+function toScan(matches: PmsMatch[], inspected: boolean, note: string | null): PmsScan {
+  if (matches.length > 0) {
+    return { pms: matches.map((match) => match.name).join(", "), matches, note: null };
+  }
+  return { pms: inspected ? PMS_NONE : null, matches, note };
 }
 
 function describe(failure: FetchFailure): string {
@@ -98,7 +100,7 @@ function describe(failure: FetchFailure): string {
 export async function detectPms(website: string | null): Promise<PmsScan> {
   const startUrl = normalizeStartUrl(website);
   if (!startUrl) {
-    return toScan([], website ? "Website address is not a valid URL" : "No website");
+    return toScan([], false, website ? "Website address is not a valid URL" : "No website");
   }
   const startedAt = Date.now();
 
@@ -112,13 +114,13 @@ export async function detectPms(website: string | null): Promise<PmsScan> {
   // Even a site that could not be fetched may have redirected somewhere telling.
   const matches = matchUrls([startUrl, ...urlsSeen(crawl)]);
 
-  let note = NO_MATCH;
+  let note: string | null = null;
   if (crawl.fatal) {
     note = `Website could not be fetched: ${describe(crawl.fatal)}`;
   } else if (crawl.jsHeavy) {
-    note = `${NO_MATCH}; the site renders its links with JavaScript, which this scan cannot see`;
+    note = "The site renders its links with JavaScript, which this scan cannot see";
   }
-  const scan = toScan(matches, note);
+  const scan = toScan(matches, crawl.fatal === null, note);
 
   logger.info("pms_scan", {
     website: startUrl,

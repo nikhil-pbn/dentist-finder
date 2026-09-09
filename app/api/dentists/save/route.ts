@@ -16,6 +16,7 @@ import { getConfig } from "@/lib/config";
 import { AppError, ConfigurationError, RateLimitedError, toAppError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { jobKeyFor, latestScans } from "@/lib/pms/jobs/store";
+import { PMS_NONE } from "@/lib/pms/types";
 import { getDentistSearchProvider } from "@/lib/providers";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { ensureSheetReady, saveRows } from "@/lib/sheets/client";
@@ -127,7 +128,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       zip: query.zip,
       tab: target.tab,
       ...saved,
-      pmsRows: withPms.filter((dentist) => dentist.pms !== null).length,
+      pmsRows: withPms.filter((dentist) => dentist.pms !== null && dentist.pms !== PMS_NONE).length,
       // Which of the two write paths ran, since they fail in different ways.
       mode: target.mode,
       createdTab: target.createdTab,

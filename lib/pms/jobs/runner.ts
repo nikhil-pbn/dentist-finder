@@ -2,7 +2,7 @@
  * Runs a scan job: every dentist, a few websites at a time.
  *
  * One bad website never stops the job. A scan that throws is recorded as
- * "no PMS" with a note, a scan that overruns its time is cut off and recorded
+ * "No PMS" with a note, a scan that overruns its time is cut off and recorded
  * the same way, and the next website starts. Counters are updated after every
  * dentist, so a poll always sees the latest state.
  *
@@ -85,7 +85,7 @@ export async function runJob(job: PMSJob): Promise<void> {
     const scan = await scanOne(item);
     item.scan = scan;
     job.processed += 1;
-    if (scan.pms !== null) job.detected += 1;
+    if (scan.matches.length > 0) job.detected += 1;
   });
   finishJob(job);
   logger.info("pms_job_finished", {

@@ -12,7 +12,7 @@ website
   → follow the relevant internal pages, then the external destinations those
     journeys lead to, recording every HTTP redirect hop
   → match the host of every URL seen against lib/pms/identifiers.ts
-  → "Denticon" | "Weave, Denticon" | null
+  → "Denticon" | "Weave, Denticon" | "No PMS" | null
 ```
 
 Examples:
@@ -20,7 +20,8 @@ Examples:
 - `https://example.com/forms` → `https://patientregistration.denticon.com/...` → **Denticon**
 - `https://example.com/book` → `https://book.getweave.com/...` → **Weave**
 - `https://example.com/portal` → `https://www.patientviewer.com/?RSID=...` → **Open Dental**
-- nothing recognised → **null**
+- site inspected, nothing recognised → **No PMS**
+- site could not be inspected (no website, unreachable, robots.txt) → **null**, an empty cell
 
 This is URL matching, not an inference about what software the practice runs
 internally. Null means only that no known vendor URL appeared on the site.
@@ -30,10 +31,10 @@ internally. Null means only that no known vendor URL appeared on the site.
 | Destination | What it gets |
 | --- | --- |
 | Results table and cards | The name, plus the URL that named each vendor, or a short note on why nothing was found (site could not be fetched, robots.txt, JavaScript-only site, no vendor URL). |
-| Google Sheet | One column, **PMS**, appended after the existing columns. The name or an empty cell. Nothing else. |
+| Google Sheet | One column, **PMS**, appended after the existing columns. The name, `No PMS`, or an empty cell when the site could not be inspected. Nothing else. |
 | CSV / Excel export | One column, **PMS**. The name or an empty cell. |
 
-`Dentist.pms` is `string | null`. The table-only details (`matches`, `note`)
+`Dentist.pms` is `string | null`: a vendor name, `"No PMS"` for a site that was inspected and named none, or null for one that could not be inspected. The table-only details (`matches`, `note`)
 live in the scan job's response and never reach a sheet or a file.
 
 ## How it runs
@@ -63,7 +64,7 @@ Crawl limits are constants in [`lib/pms/constants.ts`](../lib/pms/constants.ts):
 destinations, 60 s per site (cut off at 90 s regardless), 3 sites at a time. A
 site that fails or overruns is recorded as null with a note and the job moves
 on; nothing about one website stops the others. There is no browser rendering;
-a site whose links exist only after JavaScript runs reports null with a note
+a site whose links exist only after JavaScript runs reports No PMS with a note
 saying so.
 
 The crawler honours robots.txt, fetches HTML only, never submits a form or logs
@@ -102,7 +103,7 @@ To add a vendor, add one line to `PMS_IDENTIFIERS`. Nothing else changes.
 
 ## Known limitations
 
-- Null is not "no PMS". Most desktop systems leave no public trace.
+- Null is not "No PMS". Most desktop systems leave no public trace.
 - A vendor's marketing link counts, so a blog post linking to `dentrix.com`
   names Dentrix. That is by design; the table shows the matching URL so it can
   be judged.
